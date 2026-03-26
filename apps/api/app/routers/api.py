@@ -60,8 +60,9 @@ def get_issues() -> dict:
 @router.post("/sync")
 def sync_data(
     trigger_source: Literal["schedule", "manual", "retry", "chained"] = "manual",
+    history_limit: int = Query(default=500, ge=1, le=3000, description="Pull and keep latest N issues"),
 ) -> dict:
-    task = run_sync_job(store, trigger_source=trigger_source)
+    task = run_sync_job(store, trigger_source=trigger_source, history_limit=history_limit)
     detail = task.get("detail") or {}
     sync_body = detail.get("sync")
     if sync_body is None and task.get("status") == "skipped":

@@ -18,7 +18,7 @@ export function PostmortemPanel({ items, targetIssue }: Props) {
       <div className="panel-title">开奖复盘</div>
       <div className="runlog-list">
         {display.length === 0 ? (
-          <p className="muted">待开奖 / 待回填 — 暂无复盘条目</p>
+          <p className="muted">待开奖/待回填，暂无复盘条目</p>
         ) : (
           display.map((p) => {
             const st = postmortemStatus(p);

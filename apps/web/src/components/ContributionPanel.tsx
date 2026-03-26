@@ -22,10 +22,10 @@ export function ContributionPanel({ analysis }: Props) {
 
   return (
     <section className="panel contribution-panel m3-card-enter" style={{ animationDelay: "40ms" }}>
-      <div className="panel-title">贡献因子（Top1 号码）</div>
+      <div className="panel-title">贡献因子（头号候选）</div>
       <div className="contrib-toolbar">
         <select
-          aria-label="zone"
+          aria-label="区域"
           value={zone}
           onChange={(e) => {
             setZone(e.target.value as "front" | "back");
@@ -35,11 +35,7 @@ export function ContributionPanel({ analysis }: Props) {
           <option value="front">前区</option>
           <option value="back">后区</option>
         </select>
-        <select
-          aria-label="position"
-          value={posIdx}
-          onChange={(e) => setPosIdx(Number(e.target.value))}
-        >
+        <select aria-label="位置" value={posIdx} onChange={(e) => setPosIdx(Number(e.target.value))}>
           {(zone === "front" ? [0, 1, 2, 3, 4] : [0, 1]).map((i) => (
             <option key={i} value={i}>
               位次 {i + 1}
@@ -47,19 +43,19 @@ export function ContributionPanel({ analysis }: Props) {
           ))}
         </select>
       </div>
-      {!top ? <p className="muted">无数据</p> : null}
+      {!top ? <p className="muted">暂无数据</p> : null}
       {top ? (
         <div className="contrib-body">
           <div className="contrib-headline">
             <span className={`ball ${zone === "front" ? "ball-red" : "ball-blue"}`}>{String(top.number).padStart(2, "0")}</span>
-            <span className="prob-pill">p̂ {top.calibrated_prob.toFixed(4)}</span>
+            <span className="prob-pill">概率 {top.calibrated_prob.toFixed(4)}</span>
           </div>
           <ul className="factor-list">
             {(top.top_factors ?? []).map((f, i) => (
               <li key={i} className="factor-item">
                 {Object.entries(f).map(([k, v]) => (
                   <span key={k}>
-                    <strong>{k}</strong> × {v.toFixed(3)}
+                    <strong>{k}</strong> ：{v.toFixed(3)}
                   </span>
                 ))}
               </li>

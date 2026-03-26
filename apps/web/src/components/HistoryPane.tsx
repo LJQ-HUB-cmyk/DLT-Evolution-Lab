@@ -7,9 +7,11 @@ type HistoryPaneProps = {
   issues: DrawIssue[];
   selectedIssue: string;
   onSelectIssue: (issue: string) => void;
+  onSync?: () => void;
+  syncing?: boolean;
 };
 
-export function HistoryPane({ issues, selectedIssue, onSelectIssue }: HistoryPaneProps) {
+export function HistoryPane({ issues, selectedIssue, onSelectIssue, onSync, syncing }: HistoryPaneProps) {
   const [q, setQ] = useState("");
   const filtered = useMemo(() => {
     const t = q.trim().toLowerCase();
@@ -26,17 +28,22 @@ export function HistoryPane({ issues, selectedIssue, onSelectIssue }: HistoryPan
         <input
           aria-label="筛选期号"
           className="history-filter"
-          placeholder="筛选期号…"
+          placeholder="筛选期号..."
           value={q}
           onChange={(e) => setQ(e.target.value)}
         />
         <button className="ghost-btn" type="button" onClick={() => onSelectIssue("next")}>
           目标：下一期
         </button>
+        {onSync ? (
+          <button className="ghost-btn" type="button" onClick={onSync} disabled={Boolean(syncing)}>
+            {syncing ? "更新中..." : "手动更新历史"}
+          </button>
+        ) : null}
       </div>
       <div className="history-list">
         {filtered.length === 0 ? (
-          <div className="empty">暂无同步数据或筛选无结果</div>
+          <div className="empty">暂无历史数据，请先同步</div>
         ) : (
           filtered.map((issue) => {
             const active = issue.issue === selectedIssue;

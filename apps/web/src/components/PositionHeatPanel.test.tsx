@@ -36,7 +36,7 @@ describe("PositionHeatPanel", () => {
 
   it("skips chart in jsdom", () => {
     render(<PositionHeatPanel analysis={analysis} />);
-    expect(screen.getByText(/skipped in test runtime/i)).toBeInTheDocument();
+    expect(screen.getByText(/测试环境跳过图表渲染/)).toBeInTheDocument();
   });
 
   it("runs chart lifecycle when UA is not jsdom (stubbed echarts init)", async () => {

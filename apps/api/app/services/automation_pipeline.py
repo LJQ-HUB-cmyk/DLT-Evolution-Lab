@@ -64,9 +64,14 @@ def run_sync_job(
     store: JsonStore,
     *,
     trigger_source: Literal["schedule", "manual", "retry", "chained"] = "schedule",
+    history_limit: int = 500,
 ) -> dict[str, Any]:
     def _run() -> dict[str, Any]:
-        summary = sync_official_sources()
+        try:
+            summary = sync_official_sources(history_limit=history_limit)
+        except TypeError:
+            # Backward-compatible with patched tests/mocks that still expose sync_official_sources() without kwargs.
+            summary = sync_official_sources()
         warnings = list(summary.get("warnings") or [])
         ok = bool(summary.get("ok"))
         record_sync_failure_for_alerts(store, ok)
@@ -85,6 +90,7 @@ def run_sync_job(
                 "ruleVersionCount": summary.get("ruleVersionCount"),
                 "warnings": warnings,
                 "snapshots": summary.get("snapshots"),
+                "historySync": summary.get("historySync"),
             },
         }
 

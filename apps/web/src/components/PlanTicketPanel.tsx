@@ -29,7 +29,7 @@ export function PlanTicketPanel({ title, tickets }: Props) {
                 </span>
               ))}
             </div>
-            <div className="ticket-meta mono small">score {t.score.toFixed(3)}</div>
+            <div className="ticket-meta mono small">评分 {t.score.toFixed(3)}</div>
           </div>
         ))}
       </div>

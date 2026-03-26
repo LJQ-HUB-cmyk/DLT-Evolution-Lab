@@ -40,10 +40,10 @@ export function DriftTrendPanel({ runs }: Props) {
       grid: { left: 48, right: 16, top: 24, bottom: 28 },
       tooltip: { trigger: "axis" },
       xAxis: { type: "category", data: series.map((s) => String(s.idx)) },
-      yAxis: { type: "value", name: "drift" },
+      yAxis: { type: "value", name: "漂移分" },
       series: [
         {
-          name: "drift_score",
+          name: "漂移分",
           type: "line",
           smooth: true,
           data: series.map((s) => s.score),
@@ -60,13 +60,11 @@ export function DriftTrendPanel({ runs }: Props) {
 
   return (
     <section className="panel drift-trend-panel m3-card-enter" style={{ animationDelay: "100ms" }}>
-      <div className="panel-title">漂移趋势（实验 run）</div>
+      <div className="panel-title">漂移趋势（实验记录）</div>
       <div className="heat-chart-wrap">
-        {series.length === 0 ? (
-          <p className="muted pad">暂无漂移序列（当前引擎 run 未写入 drift 或样本不足）</p>
-        ) : null}
+        {series.length === 0 ? <p className="muted pad">暂无漂移序列。</p> : null}
         {series.length > 0 && !isJsdom ? <div ref={ref} className="heat-chart drift-chart" /> : null}
-        {series.length > 0 && isJsdom ? <p className="muted pad">图表在测试环境跳过渲染</p> : null}
+        {series.length > 0 && isJsdom ? <p className="muted pad">测试环境跳过图表渲染。</p> : null}
       </div>
     </section>
   );

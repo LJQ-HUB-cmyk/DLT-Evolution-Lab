@@ -44,12 +44,12 @@ export function PositionHeatPanel({ analysis }: Props) {
       tooltip: { position: "top" },
       xAxis: {
         type: "category",
-        data: ["F1", "F2", "F3", "F4", "F5", "B1", "B2"],
+        data: ["前1", "前2", "前3", "前4", "前5", "后1", "后2"],
         splitArea: { show: true },
       },
       yAxis: {
         type: "category",
-        data: ["T1", "T2", "T3", "T4", "T5", "T6", "T7", "T8"].slice(0, 8),
+        data: ["候选1", "候选2", "候选3", "候选4", "候选5", "候选6", "候选7", "候选8"].slice(0, 8),
         splitArea: { show: true },
       },
       visualMap: {
@@ -63,7 +63,7 @@ export function PositionHeatPanel({ analysis }: Props) {
       },
       series: [
         {
-          name: "calibrated_prob",
+          name: "概率热力",
           type: "heatmap",
           data,
           label: { show: false },
@@ -82,13 +82,12 @@ export function PositionHeatPanel({ analysis }: Props) {
 
   return (
     <section className="panel position-heat-panel m3-card-enter" style={{ animationDelay: "80ms" }}>
-      <div className="panel-title">Position Heatmap (ECharts)</div>
+      <div className="panel-title">位置概率热力图</div>
       <div className="heat-chart-wrap">
-        {!analysis ? <p className="muted pad">No analysis data.</p> : null}
+        {!analysis ? <p className="muted pad">暂无分析数据。</p> : null}
         {analysis && !isJsdom ? <div ref={ref} className="heat-chart" /> : null}
-        {analysis && isJsdom ? <p className="muted pad">Heatmap skipped in test runtime.</p> : null}
+        {analysis && isJsdom ? <p className="muted pad">测试环境跳过图表渲染。</p> : null}
       </div>
     </section>
   );
 }
-

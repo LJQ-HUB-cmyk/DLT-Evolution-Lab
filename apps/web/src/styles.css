@@ -624,6 +624,44 @@ body {
   min-height: 220px;
 }
 
+.sync-modal-mask {
+  position: fixed;
+  inset: 0;
+  background: rgba(8, 18, 34, 0.45);
+  z-index: 1000;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+}
+
+.sync-modal {
+  width: min(620px, 96vw);
+  border-radius: 12px;
+  border: 1px solid var(--line-metal);
+  background: #fffef9;
+  box-shadow: var(--shadow-hover);
+  padding: 14px 14px 10px;
+}
+
+.sync-modal h3 {
+  margin: 0 0 10px;
+  color: var(--ink);
+}
+
+.sync-modal ul {
+  margin: 0;
+  padding-left: 18px;
+  color: var(--ink);
+  display: grid;
+  gap: 8px;
+}
+
+.sync-modal-actions {
+  margin-top: 12px;
+  display: flex;
+  justify-content: flex-end;
+}
+
 @media (min-width: 1200px) {
   .layout-grid {
     grid-template-columns: 1fr 2fr;

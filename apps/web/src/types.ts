@@ -121,10 +121,22 @@ export type IssueStatus = {
 export type SyncSummary = {
   ok: boolean;
   degraded: boolean;
-  mode: "live" | "cache";
+  mode: "live" | "cache" | "skipped" | string;
   syncedAt: string;
   issueCount: number;
   newIssueCount: number;
   ruleVersionCount: number;
   warnings: string[];
+  historySync?: {
+    ok?: boolean;
+    degraded?: boolean;
+    issueCount?: number;
+    warnings?: string[];
+  } | null;
+  scheduler_context?: {
+    trigger_source?: string;
+    task_status?: string;
+    task_id?: string;
+    idempotency_key?: string;
+  } | null;
 };

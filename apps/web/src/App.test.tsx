@@ -97,7 +97,7 @@ describe("App integration", () => {
     });
     render(<App />);
     await screen.findByTestId("app-root");
-    await userEvent.click(screen.getByRole("button", { name: /Sync Official Data/i }));
+    await userEvent.click(screen.getByRole("button", { name: /同步官方数据/ }));
     await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent(/同步降级/));
   });
 
@@ -129,8 +129,9 @@ describe("App integration", () => {
   it("shows api error when sync fails", async () => {
     vi.mocked(api.syncOfficialData).mockRejectedValueOnce(new Error("sync-boom"));
     render(<App />);
-    await userEvent.click(screen.getByRole("button", { name: /Sync Official Data/i }));
-    await waitFor(() => expect(screen.getByText("sync-boom")).toBeInTheDocument());
+    await userEvent.click(screen.getByRole("button", { name: /同步官方数据/ }));
+    await waitFor(() => expect(screen.getByRole("alertdialog")).toBeInTheDocument());
+    expect(screen.getAllByText("sync-boom").length).toBeGreaterThanOrEqual(1);
   });
 
   it("shows status error when partial refresh fails", async () => {

@@ -12,7 +12,7 @@ export function ExperimentRunPanel({ runs, targetIssue }: Props) {
   const latest = list.slice(-12).reverse();
   return (
     <section className="panel experiment-run-panel m3-card-enter" style={{ animationDelay: "160ms" }}>
-      <div className="panel-title">实验 Run 列表</div>
+      <div className="panel-title">实验记录列表</div>
       <div className="runlog-list">
         {latest.length === 0 ? <p className="muted">暂无实验记录</p> : null}
         {latest.map((r) => (
@@ -22,7 +22,7 @@ export function ExperimentRunPanel({ runs, targetIssue }: Props) {
               <span>{r.created_at}</span>
             </div>
             <div className="mono small">
-              {r.model_version} · seed {r.seed} · {r.target_issue}
+              {r.model_version} · 种子 {r.seed} · 期号 {r.target_issue}
               {r.snapshot_hash ? ` · ${r.snapshot_hash.slice(0, 10)}…` : ""}
             </div>
             <div className="muted small">{summarizeDrift(r.drift ?? null)}</div>

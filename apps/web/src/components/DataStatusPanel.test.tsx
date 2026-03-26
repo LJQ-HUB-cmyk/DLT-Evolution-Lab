@@ -30,8 +30,8 @@ describe("DataStatusPanel", () => {
       warnings: [],
     };
     render(<DataStatusPanel status={status} syncSummary={sum} syncing={false} onSync={onSync} />);
-    expect(screen.getByText(/Sync ok/i)).toBeInTheDocument();
-    expect(screen.queryByText(/Warnings:/i)).not.toBeInTheDocument();
+    expect(screen.getByText(/同步成功/)).toBeInTheDocument();
+    expect(screen.queryByText(/告警：/)).not.toBeInTheDocument();
   });
 
   it("shows degraded summary", async () => {
@@ -47,8 +47,8 @@ describe("DataStatusPanel", () => {
       warnings: ["w1"],
     };
     render(<DataStatusPanel status={status} syncSummary={sum} syncing={false} onSync={onSync} />);
-    expect(screen.getByText(/Degraded mode/i)).toBeInTheDocument();
-    await userEvent.click(screen.getByRole("button", { name: /Sync Official Data/i }));
+    expect(screen.getByText(/同步降级/)).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: /同步官方数据/ }));
     expect(onSync).toHaveBeenCalled();
   });
 });

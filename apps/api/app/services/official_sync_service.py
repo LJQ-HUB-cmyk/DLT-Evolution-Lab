@@ -203,7 +203,7 @@ def ingest_official_draw(
     return {"ok": True, "status": "merged", "issue": key}
 
 
-def sync_official_sources() -> dict[str, Any]:
+def sync_official_sources(*, history_limit: int = 500) -> dict[str, Any]:
     sync_time = _utc_now().isoformat()
     warnings: list[str] = []
     snapshots: dict[str, Any] = {}
@@ -277,6 +277,24 @@ def sync_official_sources() -> dict[str, Any]:
     else:
         rule_versions = _read_json(normalized_data_dir() / "rule_versions.json", default={"items": []})
 
+    history_sync: dict[str, Any] | None = None
+    if history_limit > 0:
+        try:
+            # Local import to avoid circular dependency: sporttery_history_service imports helpers from this module.
+            from app.services.sporttery_history_service import sync_sporttery_history
+
+            history_sync = sync_sporttery_history(limit=history_limit)
+            for w in history_sync.get("warnings", []) or []:
+                warnings.append(f"history: {w}")
+            if history_sync.get("degraded"):
+                degraded = True
+            # history sync may trim/refresh issues.json; reload final snapshot for response consistency.
+            latest_payload = _read_json(normalized_path, default={"items": []})
+            final_items = latest_payload.get("items", [])
+        except Exception as exc:  # noqa: BLE001
+            degraded = True
+            warnings.append(f"history sync failed: {exc}")
+
     return {
         "ok": not degraded,
         "degraded": degraded,
@@ -287,4 +305,5 @@ def sync_official_sources() -> dict[str, Any]:
         "ruleVersionCount": len(rule_versions.get("items", [])),
         "warnings": warnings,
         "snapshots": snapshots,
+        "historySync": history_sync,
     }

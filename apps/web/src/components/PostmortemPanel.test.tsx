@@ -25,7 +25,7 @@ describe("PostmortemPanel", () => {
     expect(screen.getByText("已记录")).toBeInTheDocument();
   });
 
-  it("shows pending for Chinese summary", () => {
+  it("shows pending for pending summary", () => {
     const items: PostmortemSummary[] = [
       {
         issue: "25101",

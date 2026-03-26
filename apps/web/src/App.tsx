@@ -20,7 +20,14 @@ import {
   runPublish,
   syncOfficialData,
 } from "./lib/api";
-import type { AnalysisResponse, DrawIssue, IssueStatus, ModelRegistryItem, PredictionRun, SyncSummary } from "./types";
+import type {
+  AnalysisResponse,
+  DrawIssue,
+  IssueStatus,
+  ModelRegistryItem,
+  PredictionRun,
+  SyncSummary,
+} from "./types";
 
 const PositionHeatPanel = lazy(() =>
   import("./components/PositionHeatPanel").then((mod) => ({ default: mod.PositionHeatPanel })),
@@ -28,6 +35,12 @@ const PositionHeatPanel = lazy(() =>
 const DriftTrendPanel = lazy(() =>
   import("./components/DriftTrendPanel").then((mod) => ({ default: mod.DriftTrendPanel })),
 );
+
+type SyncDialogState = {
+  open: boolean;
+  title: string;
+  lines: string[];
+};
 
 const defaultStatus = (): IssueStatus => ({
   issueCount: 0,
@@ -38,6 +51,12 @@ const defaultStatus = (): IssueStatus => ({
   schedulerLogs: [],
   postmortems: [],
   optimizationRuns: [],
+});
+
+const defaultSyncDialog = (): SyncDialogState => ({
+  open: false,
+  title: "",
+  lines: [],
 });
 
 export default function App() {
@@ -55,16 +74,18 @@ export default function App() {
   const [apiError, setApiError] = useState<string | null>(null);
   const [statusError, setStatusError] = useState<string | null>(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
+  const [syncDialog, setSyncDialog] = useState<SyncDialogState>(defaultSyncDialog);
+
+  const openSyncDialog = useCallback((title: string, lines: string[]) => {
+    setSyncDialog({ open: true, title, lines });
+  }, []);
 
   const champion = useMemo(
     () => models.find((m) => m.status === "champion") ?? models[0] ?? null,
     [models],
   );
 
-  const scopedRuns = useMemo(
-    () => runs.filter((r) => r.target_issue === targetIssue),
-    [runs, targetIssue],
-  );
+  const scopedRuns = useMemo(() => runs.filter((r) => r.target_issue === targetIssue), [runs, targetIssue]);
   const latest = scopedRuns.length ? scopedRuns[scopedRuns.length - 1] : runs.length ? runs[runs.length - 1] : null;
   const plan1 = latest?.plan1 ?? [];
   const plan2 = latest?.plan2 ?? [];
@@ -85,12 +106,7 @@ export default function App() {
       setStatus(issueStatus);
       setAnalysis(an);
       setModels(reg?.items ?? []);
-      if (
-        issueStatus.issueCount === 0 &&
-        issueStatus.logCount === 0 &&
-        issueData.length === 0 &&
-        runData.length === 0
-      ) {
+      if (issueStatus.issueCount === 0 && issueStatus.logCount === 0 && issueData.length === 0 && runData.length === 0) {
         setStatusError("无法连接后端或状态为空，请确认 API 已启动。");
       }
     } finally {
@@ -141,12 +157,44 @@ export default function App() {
   async function onSync() {
     setSyncing(true);
     setApiError(null);
+    const prevIssueCount = status.issueCount;
     try {
       const summary = await syncOfficialData();
       setSyncSummary(summary);
       await refreshCore();
+
+      const lines: string[] = [];
+      const warnings = summary.warnings ?? [];
+      const newIssueCount = Number(summary.newIssueCount ?? 0);
+      const mode = String(summary.mode ?? "unknown");
+      const taskStatus = summary.scheduler_context?.task_status;
+
+      if (mode === "skipped" || taskStatus === "skipped") {
+        lines.push("本次同步被系统跳过，通常是短时间重复触发或当前无需增量更新。");
+      }
+      if (summary.degraded) {
+        lines.push("同步处于降级模式，可能使用了缓存或部分数据源失败。");
+      }
+      if (warnings.length > 0) {
+        lines.push(`告警：${warnings.join(" | ")}`);
+      }
+      const historyWarnings = summary.historySync?.warnings ?? [];
+      if (historyWarnings.length > 0) {
+        lines.push(`历史拉取告警：${historyWarnings.join(" | ")}`);
+      }
+      if (newIssueCount <= 0) {
+        lines.push("本次没有新增历史期号，可能是已最新或源端未返回新数据。");
+      }
+      if (prevIssueCount > 0 && Number(summary.issueCount ?? 0) < prevIssueCount) {
+        lines.push("检测到历史期数减少，请检查同步源或本地数据文件是否被覆盖。");
+      }
+      if (lines.length > 0) {
+        openSyncDialog("同步完成，但有提示", lines);
+      }
     } catch (e) {
-      setApiError(e instanceof Error ? e.message : "同步失败");
+      const msg = e instanceof Error ? e.message : "同步失败";
+      setApiError(msg);
+      openSyncDialog("同步失败", [msg]);
     } finally {
       setSyncing(false);
     }
@@ -156,7 +204,7 @@ export default function App() {
     syncSummary?.degraded || (syncSummary?.warnings && syncSummary.warnings.length > 0) ? (
       <div className="degraded-banner" role="status">
         同步降级或告警：
-        {syncSummary?.degraded ? " degraded " : ""}
+        {syncSummary?.degraded ? " 已降级 " : ""}
         {syncSummary?.warnings?.length ? syncSummary.warnings.join(" | ") : ""}
       </div>
     ) : null;
@@ -164,7 +212,7 @@ export default function App() {
   const stickyMeta = (
     <div className="sticky-meta" data-testid="sticky-meta">
       <div className="sticky-chip mono">{analysis?.modelVersion ?? champion?.version ?? "—"}</div>
-      <div className="sticky-chip">{champion ? `credit ${champion.credit.toFixed(2)}` : "credit —"}</div>
+      <div className="sticky-chip">{champion ? `信用分 ${champion.credit.toFixed(2)}` : "信用分 —"}</div>
     </div>
   );
 
@@ -174,7 +222,7 @@ export default function App() {
         <div className="topbar-row">
           <div>
             <h1>DLT Evolution Lab</h1>
-            <p>官方票面质感 + 透明预测引擎（M6）</p>
+            <p>透明预测引擎</p>
           </div>
           {stickyMeta}
         </div>
@@ -185,7 +233,13 @@ export default function App() {
       </button>
       <section className={`layout-grid ${drawerOpen ? "drawer-open" : ""}`}>
         <div className="left-col">
-          <HistoryPane issues={issues} selectedIssue={targetIssue} onSelectIssue={setTargetIssue} />
+          <HistoryPane
+            issues={issues}
+            selectedIssue={targetIssue}
+            onSelectIssue={setTargetIssue}
+            onSync={onSync}
+            syncing={syncing}
+          />
         </div>
         <div className="right-col">
           <div className="right-upper">
@@ -227,11 +281,7 @@ export default function App() {
           </div>
           <div className="right-lower">
             <ExperimentRunPanel runs={runs} targetIssue={targetIssue} />
-            <RunLogPanel
-              logs={status.schedulerLogs}
-              errorMessage={statusError}
-              onRetry={() => void refreshCore()}
-            />
+            <RunLogPanel logs={status.schedulerLogs} errorMessage={statusError} onRetry={() => void refreshCore()} />
             <Suspense
               fallback={
                 <section className="panel">
@@ -247,6 +297,30 @@ export default function App() {
           </div>
         </div>
       </section>
+
+      {syncDialog.open ? (
+        <div className="sync-modal-mask" role="presentation" onClick={() => setSyncDialog(defaultSyncDialog())}>
+          <div
+            className="sync-modal"
+            role="alertdialog"
+            aria-modal="true"
+            aria-labelledby="sync-dialog-title"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h3 id="sync-dialog-title">{syncDialog.title}</h3>
+            <ul>
+              {syncDialog.lines.map((line, idx) => (
+                <li key={idx}>{line}</li>
+              ))}
+            </ul>
+            <div className="sync-modal-actions">
+              <button type="button" className="primary-btn" onClick={() => setSyncDialog(defaultSyncDialog())}>
+                我知道了
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </main>
   );
 }

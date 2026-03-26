@@ -20,7 +20,7 @@ describe("RunLogPanel", () => {
         ]}
       />,
     );
-    expect(screen.getByText("predict")).toBeInTheDocument();
+    expect(screen.getByText("实验计算")).toBeInTheDocument();
     expect(screen.getByText(/run_id=x/)).toBeInTheDocument();
   });
 });

@@ -25,9 +25,7 @@ export function ControlPanel({
   return (
     <section className="panel control-pane m3-card-enter" style={{ animationDelay: "200ms" }}>
       <div className="panel-title">实验控制</div>
-      <p className="muted">
-        透明特征、位置校准、Beam Search 组票；每次实验生成独立 run。发布后该期正式预测冻结。
-      </p>
+      <p className="muted">每次实验都会生成独立记录；正式发布后，该期正式预测将冻结。</p>
       <div className="control-row">
         <label className="control-label" htmlFor="target-issue-input">
           目标期号
@@ -63,7 +61,7 @@ export function ControlPanel({
       </div>
       <div className="stats-grid">
         <div className="stat-card">
-          <span>实验 Run 数</span>
+          <span>实验记录数</span>
           <strong>{runs.length}</strong>
         </div>
         <div className="stat-card">
@@ -71,8 +69,8 @@ export function ControlPanel({
           <strong className="mono small">{ver}</strong>
         </div>
         <div className="stat-card">
-          <span>图表</span>
-          <strong>ECharts</strong>
+          <span>图表引擎</span>
+          <strong>图形展示</strong>
         </div>
       </div>
     </section>
