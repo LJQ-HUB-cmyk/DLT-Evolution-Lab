@@ -1,0 +1,25 @@
+[project]
+name = "dlt-evolution-lab-api"
+version = "0.1.0"
+description = "FastAPI backend for dlt-evolution-lab"
+requires-python = ">=3.11"
+dependencies = [
+  "fastapi>=0.115.0",
+  "uvicorn[standard]>=0.30.0",
+  "pydantic>=2.8.0",
+  "numpy>=1.26.0",
+  "pandas>=2.1.0",
+  "scikit-learn>=1.4.0",
+  "scipy>=1.11.0",
+  "optuna>=3.6.0",
+]
+
+[project.optional-dependencies]
+dev = [
+  "httpx>=0.27.0",
+  "pytest>=8.0.0",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+

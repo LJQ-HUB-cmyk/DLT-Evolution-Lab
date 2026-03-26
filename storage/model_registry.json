@@ -1,0 +1,16 @@
+{
+  "items": [
+    {
+      "version": "m1-baseline",
+      "status": "champion",
+      "credit": 1.0,
+      "credit_score": 70.0,
+      "consecutive_warn_count": 0,
+      "config_overrides": {},
+      "created_at": "2026-03-26T00:00:00Z",
+      "updated_at": "2026-03-26T00:00:00Z",
+      "notes": "Bootstrapped baseline model."
+    }
+  ]
+}
+
