@@ -36,5 +36,5 @@ test-results/
 # Local scratch
 _tmp*.html
 
-# Markdown: keep locally, do not track or push
+# Markdown — keep local only, do not commit or push
 *.md

@@ -138,8 +138,9 @@ def transition_task(
 ) -> dict[str, Any]:
     """
     Unified state machine: queued -> running -> succeeded|failed|skipped|compensated.
-    `runner` is a callable () -> dict with keys: result_summary, warnings (opt), snapshot_hash (opt), model_version (opt), error_message (opt on failure).
-    On success runner should return those; on exception -> failed.
+    `runner` is a callable () -> dict with keys: result_summary, warnings (opt), snapshot_hash (opt),
+    model_version (opt), task_status (opt; one of succeeded|failed), error_message (opt).
+    On exception -> failed.
     """
     ikey = idempotency_key or compute_idempotency_key(
         task_type=task_type,
@@ -197,11 +198,15 @@ def transition_task(
         mv = str(out.get("model_version") or model_version)
         summary = str(out.get("result_summary") or "ok")
         warnings = list(out.get("warnings") or [])
+        task_status = str(out.get("task_status") or "succeeded")
+        if task_status not in ("succeeded", "failed"):
+            task_status = "succeeded"
+        error_message = str(out.get("error_message") or "")
         entry = build_audit_entry(
             task_id=task_id,
             task_type=task_type,
             trigger_source=trigger_source,
-            status="succeeded",
+            status=task_status,
             idempotency_key=ikey,
             target_issue=target_issue,
             snapshot_hash=sh,
@@ -210,19 +215,21 @@ def transition_task(
             attempt_no=attempt_no,
             result_summary=summary,
             warnings=warnings,
+            error_message=error_message,
         )
         append_audit_entry(store, entry)
         set_idempotency_record(
             store,
             ikey,
             {
-                "status": "succeeded",
+                "status": task_status,
                 "task_id": task_id,
                 "attempt_no": attempt_no,
                 "finished_at": utc_now_iso(),
+                **({"error_message": error_message} if error_message else {}),
             },
         )
-        return {"status": "succeeded", "task_id": task_id, "idempotency_key": ikey, "detail": out}
+        return {"status": task_status, "task_id": task_id, "idempotency_key": ikey, "detail": out}
     except Exception as exc:  # noqa: BLE001
         duration_ms = int((time.perf_counter() - t0) * 1000)
         entry = build_audit_entry(

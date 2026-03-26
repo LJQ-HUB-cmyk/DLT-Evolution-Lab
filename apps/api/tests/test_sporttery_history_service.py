@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from urllib.error import URLError
 
 import pytest
 
@@ -54,25 +55,13 @@ def test_sync_sporttery_history_merges_and_trims(tmp_path: Path, monkeypatch: py
         encoding="utf-8",
     )
 
-    def _fake_page(page_no: int, page_size: int) -> dict:
-        base = 25000 + (page_no - 1) * 3
-        lst = []
-        for i in range(3):
-            n = base + i
-            lst.append(
-                {
-                    "lotteryDrawNum": str(n),
-                    "lotteryDrawResult": "01 02 03 04 05+06 07",
-                    "lotteryDrawStatus": 20,
-                    "lotteryDrawTime": "2026-01-01",
-                }
-            )
-        return {"errorCode": "0", "value": {"list": lst}}
+    def _fake_text() -> str:
+        lines = []
+        for n in range(25000, 25008):
+            lines.append(f"{n} 2026-01-01 01 02 03 04 05 06 07 - - -")
+        return "\n".join(lines)
 
-    monkeypatch.setattr(
-        "app.services.sporttery_history_service._fetch_sporttery_page",
-        _fake_page,
-    )
+    monkeypatch.setattr("app.services.sporttery_history_service._fetch_history_text", _fake_text)
 
     out = sync_sporttery_history(limit=5, page_size=30, max_pages=10)
     assert out["ok"] is True
@@ -114,22 +103,10 @@ def test_sync_sporttery_history_conflict_warns(tmp_path: Path, monkeypatch: pyte
         encoding="utf-8",
     )
 
-    def _fake_page(_page_no: int, _page_size: int) -> dict:
-        return {
-            "errorCode": "0",
-            "value": {
-                "list": [
-                    {
-                        "lotteryDrawNum": "25001",
-                        "lotteryDrawResult": "01 02 03 04 05+06 07",
-                        "lotteryDrawStatus": 20,
-                        "lotteryDrawTime": "2026-01-02",
-                    }
-                ]
-            },
-        }
+    def _fake_text() -> str:
+        return "25001 2026-01-02 01 02 03 04 05 06 07 - - -"
 
-    monkeypatch.setattr("app.services.sporttery_history_service._fetch_sporttery_page", _fake_page)
+    monkeypatch.setattr("app.services.sporttery_history_service._fetch_history_text", _fake_text)
 
     out = sync_sporttery_history(limit=10, page_size=30, max_pages=1)
     assert out["conflictsSkipped"] == 1
@@ -137,3 +114,70 @@ def test_sync_sporttery_history_conflict_warns(tmp_path: Path, monkeypatch: pyte
     payload = json.loads((norm / "issues.json").read_text(encoding="utf-8"))
     row = payload["items"][0]
     assert row["front"] == [10, 11, 12, 13, 14]
+
+
+def test_sync_sporttery_history_handles_blocked_text_source(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    norm = tmp_path / "normalized"
+    norm.mkdir(parents=True)
+    st = tmp_path / "storage"
+    st.mkdir(parents=True)
+
+    monkeypatch.setattr("app.services.sporttery_history_service.normalized_data_dir", lambda: norm)
+    monkeypatch.setattr("app.services.sporttery_history_service.storage_dir", lambda: st)
+
+    (norm / "issues.json").write_text(
+        json.dumps({"items": [{"issue": "25130", "front": [1, 2, 3, 4, 5], "back": [6, 7], "source": ["ingest"]}]}, ensure_ascii=False),
+        encoding="utf-8",
+    )
+
+    def _raise_fetch() -> str:
+        raise URLError("HTTP Error 567: Unknown Status")
+
+    monkeypatch.setattr("app.services.sporttery_history_service._fetch_history_text", _raise_fetch)
+
+    out = sync_sporttery_history(limit=10)
+    assert out["ok"] is False
+    assert out["issueCount"] == 1
+    assert out["fetchedUniqueIssues"] == 0
+    assert any("history text fetch failed" in w for w in out["warnings"])
+
+
+def test_sync_sporttery_history_replaces_ingest_placeholder(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    norm = tmp_path / "normalized"
+    norm.mkdir(parents=True)
+    st = tmp_path / "storage"
+    st.mkdir(parents=True)
+
+    monkeypatch.setattr("app.services.sporttery_history_service.normalized_data_dir", lambda: norm)
+    monkeypatch.setattr("app.services.sporttery_history_service.storage_dir", lambda: st)
+
+    (norm / "issues.json").write_text(
+        json.dumps(
+            {
+                "items": [
+                    {
+                        "issue": "25130",
+                        "front": [1, 2, 3, 4, 5],
+                        "back": [6, 7],
+                        "draw_date": None,
+                        "source": ["ingest"],
+                    }
+                ]
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+
+    def _fake_text() -> str:
+        return "25130 2025-11-01 08 11 15 22 31 04 09 - - -"
+
+    monkeypatch.setattr("app.services.sporttery_history_service._fetch_history_text", _fake_text)
+
+    out = sync_sporttery_history(limit=10)
+    assert any("replaced ingest placeholder" in w for w in out["warnings"])
+    payload = json.loads((norm / "issues.json").read_text(encoding="utf-8"))
+    row = payload["items"][0]
+    assert row["front"] == [8, 11, 15, 22, 31]
+    assert row["back"] == [4, 9]
+    assert row["source"] == ["data17500_txt"]

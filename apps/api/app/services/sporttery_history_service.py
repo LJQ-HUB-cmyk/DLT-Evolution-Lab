@@ -10,11 +10,8 @@ from urllib.request import Request, urlopen
 from app.core.paths import normalized_data_dir, storage_dir
 from app.services.official_sync_service import _read_json, _validate_draw_numbers, _write_json
 
-# 超级大乐透 — 体彩公开网关分页接口（公开页面常用 gameNo=85）
-SPORTTERY_HISTORY_URL = (
-    "https://webapi.sporttery.cn/gateway/lottery/getHistoryPageListV1.qry"
-    "?gameNo=85&provinceId=0&pageSize={page_size}&isVerify=1&pageNo={page_no}"
-)
+# 超级大乐透历史文本源，按期号升序返回。
+HISTORY_TEXT_URL = "https://data.17500.cn/dlt_asc.txt"
 
 
 def _utc_now() -> datetime:
@@ -45,17 +42,16 @@ def parse_sporttery_draw_result(raw: str) -> tuple[list[int], list[int]] | None:
     return front_s, back_s
 
 
-def _fetch_sporttery_page(page_no: int, page_size: int, timeout: int = 20) -> dict[str, Any]:
-    url = SPORTTERY_HISTORY_URL.format(page_no=page_no, page_size=page_size)
+def _fetch_history_text(timeout: int = 20) -> str:
     req = Request(
-        url,
+        url=HISTORY_TEXT_URL,
         headers={
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-            "Accept": "application/json,text/plain,*/*",
+            "Accept": "text/plain,text/html,application/xhtml+xml",
         },
     )
     with urlopen(req, timeout=timeout) as resp:  # noqa: S310
-        return json.loads(resp.read().decode("utf-8", errors="ignore"))
+        return resp.read().decode("utf-8", errors="ignore")
 
 
 def _numeric_issue(issue: str) -> int:
@@ -65,12 +61,36 @@ def _numeric_issue(issue: str) -> int:
         return -1
 
 
-def _page_rows(payload: dict[str, Any]) -> list[dict[str, Any]]:
-    val = payload.get("value")
-    if not isinstance(val, dict):
-        return []
-    lst = val.get("list")
-    return lst if isinstance(lst, list) else []
+def _parse_history_text(raw_text: str) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for raw_line in (raw_text or "").splitlines():
+        line = raw_line.strip()
+        if not line:
+            continue
+        parts = line.split()
+        if len(parts) < 9:
+            continue
+        issue = str(parts[0]).strip()
+        draw_date = str(parts[1]).strip()
+        try:
+            front = sorted(int(x) for x in parts[2:7])
+            back = sorted(int(x) for x in parts[7:9])
+        except ValueError:
+            continue
+        ok, _ = _validate_draw_numbers(front, back)
+        if not ok or issue in seen:
+            continue
+        rows.append(
+            {
+                "issue": issue,
+                "front": front,
+                "back": back,
+                "draw_date": draw_date,
+            }
+        )
+        seen.add(issue)
+    return rows
 
 
 def sync_sporttery_history(
@@ -80,12 +100,13 @@ def sync_sporttery_history(
     max_pages: int = 80,
 ) -> dict[str, Any]:
     """
-    Pull recent DLT draws from sporttery gateway, merge into normalized + storage issues,
+    Pull DLT draw history from the configured text source, merge into normalized + storage issues,
     then keep only the ``limit`` highest issue numbers (most recent periods).
     """
     limit = max(1, min(int(limit), 3000))
     page_size = max(10, min(int(page_size), 100))
     max_pages = max(1, min(int(max_pages), 200))
+    _ = (page_size, max_pages)
 
     warnings: list[str] = []
     sync_time = _utc_now().isoformat()
@@ -96,64 +117,36 @@ def sync_sporttery_history(
     }
 
     fetched: dict[str, dict[str, Any]] = {}
-    api_rows_seen = 0
+    parsed_rows = 0
     degraded = False
 
-    for page_no in range(1, max_pages + 1):
-        if len(fetched) >= limit:
-            break
-        try:
-            payload = _fetch_sporttery_page(page_no, page_size)
-        except (URLError, OSError, ValueError, json.JSONDecodeError) as exc:
-            degraded = True
-            warnings.append(f"sporttery page {page_no} failed: {exc}")
-            break
+    try:
+        raw_text = _fetch_history_text()
+    except (URLError, OSError, ValueError) as exc:
+        degraded = True
+        warnings.append(f"history text fetch failed: {exc}")
+        raw_text = ""
 
-        err = payload.get("errorCode")
-        if err not in (None, "0", 0):
-            degraded = True
-            warnings.append(f"sporttery errorCode={err} on page {page_no}")
+    rows = _parse_history_text(raw_text) if raw_text else []
+    parsed_rows = len(rows)
+    if not rows:
+        degraded = True
+        warnings.append("no draws parsed from history text source")
 
-        rows = _page_rows(payload)
-        if not rows:
-            break
-
-        new_on_page = 0
-        for row in rows:
-            if row.get("lotteryDrawStatus") != 20:
-                continue
-            issue = str(row.get("lotteryDrawNum") or "").strip()
-            raw_res = row.get("lotteryDrawResult") or ""
-            parsed = parse_sporttery_draw_result(str(raw_res))
-            if not issue or parsed is None:
-                continue
-            front, back = parsed
-            draw_time = row.get("lotteryDrawTime")
-            draw_date = draw_time if isinstance(draw_time, str) else None
-            api_rows_seen += 1
-            if issue in fetched:
-                prev_f, prev_b = fetched[issue]["front"], fetched[issue]["back"]
-                if prev_f != front or prev_b != back:
-                    warnings.append(f"sporttery duplicate issue {issue} with conflicting numbers")
-                continue
-            fetched[issue] = {
-                "issue": issue,
-                "front": front,
-                "back": back,
-                "draw_date": draw_date,
-            }
-            new_on_page += 1
-            if len(fetched) >= limit:
-                break
-
-        if new_on_page == 0 and rows:
-            warnings.append(f"sporttery page {page_no} had rows but none parsed as completed DLT draws")
-        # Do not stop just because len(rows) < page_size: some environments return short pages every time.
-        # Rely on empty ``rows``, ``max_pages``, or ``len(fetched) >= limit`` instead.
+    for row in rows:
+        issue = str(row.get("issue") or "").strip()
+        if not issue:
+            continue
+        if issue in fetched:
+            prev_f, prev_b = fetched[issue]["front"], fetched[issue]["back"]
+            if prev_f != row["front"] or prev_b != row["back"]:
+                warnings.append(f"history text duplicate issue {issue} with conflicting numbers")
+            continue
+        fetched[issue] = row
 
     if not fetched:
         degraded = True
-        warnings.append("no draws fetched from sporttery API")
+        warnings.append("no draws fetched from history text source")
 
     conflicts = 0
     for issue, data in fetched.items():
@@ -163,7 +156,7 @@ def sync_sporttery_history(
                 "front": data["front"],
                 "back": data["back"],
                 "draw_date": data.get("draw_date"),
-                "source": ["sporttery_api"],
+                "source": ["data17500_txt"],
                 "synced_at": sync_time,
             }
             continue
@@ -171,11 +164,23 @@ def sync_sporttery_history(
         pf = sorted(prev.get("front") or [])
         pb = sorted(prev.get("back") or [])
         if len(pf) == 5 and len(pb) == 2 and pf == data["front"] and pb == data["back"]:
-            src = sorted(set((prev.get("source") or []) + ["sporttery_api"]))
+            src = sorted(set((prev.get("source") or []) + ["data17500_txt"]))
             row_by_issue[issue] = {**prev, "source": src, "synced_at": sync_time}
         elif len(pf) == 5 and len(pb) == 2:
+            prev_sources = set(str(x) for x in (prev.get("source") or []))
+            if prev_sources == {"ingest"}:
+                row_by_issue[issue] = {
+                    **prev,
+                    "front": data["front"],
+                    "back": data["back"],
+                    "draw_date": data.get("draw_date"),
+                    "source": ["data17500_txt"],
+                    "synced_at": sync_time,
+                }
+                warnings.append(f"data_conflict issue {issue}: replaced ingest placeholder with history text source")
+                continue
             conflicts += 1
-            warnings.append(f"data_conflict issue {issue}: kept existing, sporttery differed")
+            warnings.append(f"data_conflict issue {issue}: kept existing, history text differed")
 
     final_items = sorted(row_by_issue.values(), key=lambda x: _numeric_issue(str(x.get("issue", ""))), reverse=True)
     trimmed = final_items[:limit]
@@ -187,10 +192,10 @@ def sync_sporttery_history(
         "ok": not degraded,
         "degraded": degraded,
         "syncedAt": sync_time,
-        "source": "sporttery_api",
+        "source": "data17500_txt",
         "requestedLimit": limit,
         "fetchedUniqueIssues": len(fetched),
-        "apiRowsParsed": api_rows_seen,
+        "apiRowsParsed": parsed_rows,
         "issueCount": len(trimmed),
         "conflictsSkipped": conflicts,
         "warnings": warnings,
