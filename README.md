@@ -21,6 +21,10 @@
 - 触发候选模型优化，并评估是否能晋升
 - 前端提供桌面双栏 + 移动端折叠的可视化看板
 
+## 项目截图
+
+<img width="1920" height="945" alt="image" src="https://github.com/user-attachments/assets/6b89972d-c5af-4611-bb6e-2c00a343d182" />
+
 ## 技术栈
 
 - 前端：React + Vite + TypeScript + ECharts
