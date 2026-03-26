@@ -22,7 +22,8 @@
 - 前端提供桌面双栏 + 移动端折叠的可视化看板
 ## 项目截图
 
-<img width="1920" height="945" alt="image" src="https://github.com/user-attachments/assets/d9c5db0f-fc42-4048-b703-ec5ec0ee94fd" />
+<img width="1920" height="945" alt="image" src="https://github.com/user-attachments/assets/a71a5c03-3380-4be3-b1fe-bea9c8bc14c8" />
+
 
 
 ## 技术栈
