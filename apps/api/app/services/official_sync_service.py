@@ -207,101 +207,36 @@ def sync_official_sources(*, history_limit: int = 500) -> dict[str, Any]:
     sync_time = _utc_now().isoformat()
     warnings: list[str] = []
     snapshots: dict[str, Any] = {}
-    degraded = False
-    mode = "live"
-
-    try:
-        draw_html = _fetch_html(DRAW_URL)
-        snapshots["draw"] = _save_raw_snapshot("draw", draw_html)
-    except URLError as exc:
-        draw_html = ""
-        degraded = True
-        warnings.append(f"draw fetch failed: {exc}")
-        cached = _load_latest_raw_snapshot("draw")
-        if cached is not None:
-            draw_html, snapshots["draw"] = cached
-            warnings.append("draw source fallback to cached raw snapshot.")
-            mode = "cache"
-
-    try:
-        trend_html = _fetch_html(TREND_URL)
-        snapshots["trend"] = _save_raw_snapshot("trend", trend_html)
-    except URLError as exc:
-        trend_html = ""
-        degraded = True
-        warnings.append(f"trend fetch failed: {exc}")
-        cached = _load_latest_raw_snapshot("trend")
-        if cached is not None:
-            trend_html, snapshots["trend"] = cached
-            warnings.append("trend source fallback to cached raw snapshot.")
-            mode = "cache"
-
-    try:
-        rule_html = _fetch_html(RULE_URL)
-        snapshots["rule"] = _save_raw_snapshot("rule", rule_html)
-    except URLError as exc:
-        rule_html = ""
-        degraded = True
-        warnings.append(f"rule fetch failed: {exc}")
-        cached = _load_latest_raw_snapshot("rule")
-        if cached is not None:
-            rule_html, snapshots["rule"] = cached
-            warnings.append("rule source fallback to cached raw snapshot.")
-            mode = "cache"
-
-    draw_items = _extract_issues_from_html(draw_html) if draw_html else []
-    trend_items = _extract_issues_from_html(trend_html) if trend_html else []
-    merged_items, mismatch_warnings = _merge_sources(draw_items, trend_items)
-    warnings.extend(mismatch_warnings)
-    if not merged_items:
-        degraded = True
-
     normalized_path = normalized_data_dir() / "issues.json"
-    existing = _read_json(normalized_path, default={"items": []})
-    existing_map = {row["issue"]: row for row in existing.get("items", [])}
-    existing_issue_ids = {row["issue"] for row in existing.get("items", []) if "issue" in row}
-    for item in merged_items:
-        existing_map[item["issue"]] = {
-            **item,
-            "synced_at": sync_time,
-            "source": sorted(set(item.get("source", []))),
-        }
-    final_items = sorted(existing_map.values(), key=lambda x: x["issue"], reverse=True)
-    _write_json(normalized_path, {"items": final_items})
-
-    # Keep API-facing issue cache in storage in sync with normalized data.
-    _write_json(storage_dir() / "issues.json", {"items": final_items})
-
-    if rule_html:
-        rule_versions = _update_rule_versions(rule_html, final_items[0]["issue"] if final_items else None)
-    else:
-        rule_versions = _read_json(normalized_data_dir() / "rule_versions.json", default={"items": []})
-
+    before_payload = _read_json(normalized_path, default={"items": []})
+    before_issue_ids = {str(row.get("issue")) for row in before_payload.get("items", []) if row.get("issue") is not None}
+    final_items = before_payload.get("items", [])
     history_sync: dict[str, Any] | None = None
-    if history_limit > 0:
-        try:
-            # Local import to avoid circular dependency: sporttery_history_service imports helpers from this module.
-            from app.services.sporttery_history_service import sync_sporttery_history
+    degraded = False
 
-            history_sync = sync_sporttery_history(limit=history_limit)
-            for w in history_sync.get("warnings", []) or []:
-                warnings.append(f"history: {w}")
-            if history_sync.get("degraded"):
-                degraded = True
-            # history sync may trim/refresh issues.json; reload final snapshot for response consistency.
-            latest_payload = _read_json(normalized_path, default={"items": []})
-            final_items = latest_payload.get("items", [])
-        except Exception as exc:  # noqa: BLE001
-            degraded = True
-            warnings.append(f"history sync failed: {exc}")
+    try:
+        # Local import to avoid circular dependency: sporttery_history_service imports helpers from this module.
+        from app.services.sporttery_history_service import sync_sporttery_history
+
+        history_sync = sync_sporttery_history(limit=history_limit)
+        warnings.extend(list(history_sync.get("warnings") or []))
+        degraded = bool(history_sync.get("degraded"))
+        latest_payload = _read_json(normalized_path, default={"items": []})
+        final_items = latest_payload.get("items", [])
+    except Exception as exc:  # noqa: BLE001
+        degraded = True
+        warnings.append(f"history sync failed: {exc}")
+
+    after_issue_ids = {str(row.get("issue")) for row in final_items if row.get("issue") is not None}
+    rule_versions = _read_json(normalized_data_dir() / "rule_versions.json", default={"items": []})
 
     return {
-        "ok": not degraded,
-        "degraded": degraded,
-        "mode": mode,
-        "syncedAt": sync_time,
+        "ok": not degraded and bool(final_items),
+        "degraded": degraded or not final_items,
+        "mode": "history_text",
+        "syncedAt": (history_sync or {}).get("syncedAt", sync_time),
         "issueCount": len(final_items),
-        "newIssueCount": len([i for i in merged_items if i["issue"] not in existing_issue_ids]),
+        "newIssueCount": max(0, len(after_issue_ids - before_issue_ids)),
         "ruleVersionCount": len(rule_versions.get("items", [])),
         "warnings": warnings,
         "snapshots": snapshots,

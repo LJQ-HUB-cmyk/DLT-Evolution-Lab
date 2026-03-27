@@ -15,7 +15,7 @@ const analysis: AnalysisResponse = {
   notes: "",
 };
 
-const champion: ModelRegistryItem = { version: "mv-1", status: "champion", credit: 0.91 };
+const champion: ModelRegistryItem = { version: "mv-1", status: "champion", credit_score: 72.3 };
 
 describe("ModelMetaPanel", () => {
   it("renders champion credit and drift pill", () => {
@@ -24,11 +24,18 @@ describe("ModelMetaPanel", () => {
         analysis={analysis}
         loading={false}
         champion={champion}
-        latestDrift={{ drift_score: 0.4, position_delta: 0, set_delta: 0, structure_delta: 0, score_delta: 0, overlap_delta: 0 }}
+        latestDrift={{
+          drift_score: 0.4,
+          position_dist_drift: 0,
+          number_set_drift: 0,
+          structure_drift: 0,
+          score_gap_drift: 0,
+          plan_overlap_drift: 0,
+        }}
       />,
     );
     expect(screen.getByText(/mv-1/)).toBeInTheDocument();
-    expect(screen.getByText(/0\.910/)).toBeInTheDocument();
+    expect(screen.getByText(/72\.3/)).toBeInTheDocument();
     expect(screen.getByText("高")).toBeInTheDocument();
   });
 });

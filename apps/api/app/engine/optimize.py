@@ -172,6 +172,9 @@ def run_optuna_study(
             diversity_score=float(m["diversity_score"]),
         )
         trial.set_user_attr("detail", detail)
+        trial.set_user_attr("objective_components", {**detail, "probe_metrics": dict(m)})
+        trial.set_user_attr("param_hash", search_space_hash(params))
+        trial.set_user_attr("params_json", json.dumps(params, sort_keys=True))
         return total
 
     study.optimize(_obj, n_trials=trials, timeout=timeout, show_progress_bar=False)

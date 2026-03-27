@@ -4,13 +4,98 @@
       "version": "m1-baseline",
       "status": "champion",
       "credit": 1.0,
-      "credit_score": 70.0,
+      "credit_score": 58.59341,
       "consecutive_warn_count": 0,
-      "config_overrides": {},
+      "config_overrides": {
+        "structure": {
+          "plan1": {
+            "odd_even": 0.917008,
+            "big_small": 0.917008,
+            "zone_balance": 1.072746,
+            "sum_band": 0.8391390000000001,
+            "span_band": 0.8391390000000001,
+            "hot_cold_mix": 0.76127
+          },
+          "plan2": {
+            "odd_even": 0.6055330000000001,
+            "big_small": 0.6055330000000001,
+            "zone_balance": 0.8391390000000001,
+            "sum_band": 0.527664,
+            "span_band": 0.527664,
+            "hot_cold_mix": 0.527664
+          }
+        },
+        "search": {
+          "beam_width": 32,
+          "k_front": 12,
+          "k_back": 6
+        }
+      },
       "created_at": "2026-03-26T00:00:00Z",
-      "updated_at": "2026-03-26T00:00:00Z",
-      "notes": "Bootstrapped baseline model."
+      "updated_at": "2026-03-27T00:54:30.391193+00:00",
+      "notes": "Bootstrapped baseline model.",
+      "promotion_evidence": null,
+      "drift_profile_ref": "run_8040b94c2a82",
+      "last_gate_result": null,
+      "drift_summary": {
+        "last_drift_score": 0.348403,
+        "last_drift_level": "NORMAL",
+        "last_run_id": "run_8040b94c2a82"
+      }
+    },
+    {
+      "version": "m1-baseline-cand-b46cd283",
+      "status": "candidate",
+      "credit_score": 70.0,
+      "created_at": "2026-03-26T13:01:41.215899+00:00",
+      "updated_at": "2026-03-26T13:01:41.215899+00:00",
+      "notes": "from_optimization opt_85e5b46cd283",
+      "config_overrides": {
+        "N_hist": 240,
+        "search": {
+          "beam_width": 101,
+          "k_front": 12,
+          "k_back": 6,
+          "diversity_lambda": 0.492389128724105
+        },
+        "structure": {
+          "plan1": {
+            "odd_even": 0.4900725885527184,
+            "big_small": 0.4900725885527184,
+            "zone_balance": 0.5390798474079903,
+            "sum_band": 0.41656170026981065,
+            "span_band": 0.41656170026981065,
+            "hot_cold_mix": 0.3675544414145388
+          },
+          "plan2": {
+            "odd_even": 0.21213576127692277,
+            "big_small": 0.21213576127692277,
+            "zone_balance": 0.2333493374046151,
+            "sum_band": 0.18031539708538438,
+            "span_band": 0.18031539708538438,
+            "hot_cold_mix": 0.1591018209576921
+          }
+        },
+        "calibration": {
+          "platt_C": 3.4735423174579805
+        },
+        "feature_tuning": {
+          "ewma_alpha": 0.1864234363120667,
+          "hot_threshold": 1.1725271020020118,
+          "cold_threshold": -1.225515026717519
+        },
+        "plan2": {
+          "seed_mix": 0.5982532468521539
+        }
+      },
+      "promotion_evidence": {
+        "optimization_run_id": "opt_85e5b46cd283",
+        "best_score": 0.791821077261385
+      },
+      "consecutive_warn_count": 0,
+      "drift_profile_ref": null,
+      "last_gate_result": null,
+      "drift_summary": null
     }
   ]
 }
-

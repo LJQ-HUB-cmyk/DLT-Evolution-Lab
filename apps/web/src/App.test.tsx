@@ -36,7 +36,7 @@ describe("App integration", () => {
       notes: "",
     });
     vi.spyOn(api, "fetchModels").mockResolvedValue({
-      items: [{ version: "mv", status: "champion", credit: 0.8 }],
+      items: [{ version: "mv", status: "champion", credit_score: 72 }],
     });
     vi.spyOn(api, "syncOfficialData").mockResolvedValue({
       ok: true,
@@ -49,7 +49,10 @@ describe("App integration", () => {
       warnings: [],
     });
     vi.spyOn(api, "runPredict").mockResolvedValue();
-    vi.spyOn(api, "runPublish").mockResolvedValue();
+    vi.spyOn(api, "runPublish").mockResolvedValue({
+      ok: true,
+      officialPrediction: { target_issue: "next", run_id: "r1", published_at: "t", model_version: "mv" },
+    });
   });
 
   afterEach(() => {
@@ -116,14 +119,14 @@ describe("App integration", () => {
     vi.mocked(api.runPredict).mockRejectedValueOnce(new Error("predict-boom"));
     render(<App />);
     await userEvent.click(await screen.findByTestId("btn-experiment", {}, { timeout: 15_000 }));
-    await waitFor(() => expect(screen.getByText("predict-boom")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText(/局部刷新失败/)).toBeInTheDocument());
   });
 
   it("shows api error when publish fails", async () => {
     vi.mocked(api.runPublish).mockRejectedValueOnce(new Error("publish-boom"));
     render(<App />);
     await userEvent.click(await screen.findByTestId("btn-publish", {}, { timeout: 15_000 }));
-    await waitFor(() => expect(screen.getByText("publish-boom")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText(/局部刷新失败/)).toBeInTheDocument());
   });
 
   it("shows api error when sync fails", async () => {
@@ -131,7 +134,7 @@ describe("App integration", () => {
     render(<App />);
     await userEvent.click(screen.getByRole("button", { name: /同步官方数据/ }));
     await waitFor(() => expect(screen.getByRole("alertdialog")).toBeInTheDocument());
-    expect(screen.getAllByText("sync-boom").length).toBeGreaterThanOrEqual(1);
+    expect(screen.getAllByText(/同步失败，请检查后端状态/).length).toBeGreaterThanOrEqual(1);
   });
 
   it("shows status error when partial refresh fails", async () => {

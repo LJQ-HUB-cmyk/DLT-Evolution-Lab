@@ -109,12 +109,40 @@ def get_issue_status() -> dict:
     logs_payload = store.read("scheduler_logs.json", default={"logs": []})
     postmortems_payload = store.read("postmortems.json", default={"items": []})
     optimization_payload = store.read("optimization_runs.json", default={"items": []})
-    latest_sync = None
-    for item in reversed(logs_payload.get("logs", [])):
-        if item.get("action") == "sync":
-            latest_sync = item.get("timestamp")
-            break
     logs = logs_payload.get("logs", [])
+    normalized_logs = []
+    for item in logs:
+        action = item.get("action")
+        result = item.get("result")
+        timestamp = item.get("timestamp")
+        detail = item.get("detail")
+        if not action and item.get("task_type"):
+            task_type = str(item.get("task_type"))
+            if task_type.endswith("_job"):
+                action = task_type.replace("_job", "")
+            else:
+                action = task_type
+            result = item.get("status") or result
+            timestamp = item.get("created_at") or timestamp
+            detail = item.get("result_summary") or detail
+        if action:
+            normalized_logs.append(
+                {
+                    "action": action,
+                    "result": result or "ok",
+                    "detail": detail or "",
+                    "timestamp": timestamp,
+                    "target_issue": item.get("target_issue"),
+                    "snapshot_hash": item.get("snapshot_hash"),
+                    "model_version": item.get("model_version"),
+                    "duration_ms": item.get("duration_ms"),
+                }
+            )
+    latest_sync = None
+    for item in reversed(normalized_logs):
+        if item.get("action") == "sync" and item.get("timestamp"):
+            latest_sync = item["timestamp"]
+            break
     post_items = postmortems_payload.get("items", [])
     opt_items = optimization_payload.get("items", [])
     return {
@@ -122,8 +150,8 @@ def get_issue_status() -> dict:
         "modelCount": len(models_payload.get("items", [])),
         "latestSyncAt": latest_sync,
         "latestIssue": issues_payload.get("items", [{}])[0].get("issue") if issues_payload.get("items") else None,
-        "logCount": len(logs),
-        "schedulerLogs": logs[-80:],
+        "logCount": len(normalized_logs),
+        "schedulerLogs": normalized_logs[-80:],
         "postmortems": post_items[-40:],
         "optimizationRuns": opt_items[-40:],
     }

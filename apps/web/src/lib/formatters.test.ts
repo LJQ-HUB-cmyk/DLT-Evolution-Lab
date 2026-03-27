@@ -1,62 +1,34 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  driftLevelFromBackend,
   driftLevelFromScore,
   driftLevelLabel,
-  formatBall,
-  formatTicketLine,
-  postmortemStatus,
   summarizeDrift,
 } from "./formatters";
-import type { DriftReport, PostmortemSummary, Ticket } from "../types";
+import type { DriftReport } from "../types";
 
-describe("formatters", () => {
-  it("formatBall pads zeros", () => {
-    expect(formatBall(3)).toBe("03");
-    expect(formatBall(35)).toBe("35");
+describe("formatters M7", () => {
+  it("maps drift levels to Chinese labels", () => {
+    expect(driftLevelLabel(driftLevelFromScore(0.1))).toBe("低");
+    expect(driftLevelLabel(driftLevelFromScore(0.2))).toBe("中");
+    expect(driftLevelLabel(driftLevelFromScore(0.9))).toBe("高");
+    expect(driftLevelLabel("unknown")).toBe("--");
   });
 
-  it("formatTicketLine joins zones", () => {
-    const t: Ticket = { front: [1, 2, 3, 4, 5], back: [6, 7], score: 0, tags: [] };
-    expect(formatTicketLine(t)).toBe("01 02 03 04 05 + 06 07");
+  it("maps backend NORMAL/WARN/CRITICAL", () => {
+    expect(driftLevelLabel(driftLevelFromBackend("NORMAL"))).toBe("低");
+    expect(driftLevelLabel(driftLevelFromBackend("WARN"))).toBe("中");
+    expect(driftLevelLabel(driftLevelFromBackend("CRITICAL"))).toBe("高");
   });
 
-  it("driftLevelFromScore buckets", () => {
-    expect(driftLevelFromScore(undefined)).toBe("unknown");
-    expect(driftLevelFromScore(0.1)).toBe("low");
-    expect(driftLevelFromScore(0.2)).toBe("medium");
-    expect(driftLevelFromScore(0.5)).toBe("high");
-  });
-
-  it("driftLevelLabel maps", () => {
-    expect(driftLevelLabel("low")).toBe("低");
-    expect(driftLevelLabel("unknown")).toBe("—");
-  });
-
-  it("postmortemStatus detects pending", () => {
-    expect(postmortemStatus(null)).toBe("pending");
-    const p: PostmortemSummary = {
-      issue: "1",
-      model_version: "m",
-      hit_summary: "pending draw",
-      weighted_return: 0,
-      created_at: "t",
-    };
-    expect(postmortemStatus(p)).toBe("pending");
-    const p2: PostmortemSummary = { ...p, hit_summary: "5+2 hit" };
-    expect(postmortemStatus(p2)).toBe("recorded");
-  });
-
-  it("summarizeDrift handles null and values", () => {
-    expect(summarizeDrift(null)).toContain("暂无");
+  it("summarizeDrift uses Chinese empty state", () => {
+    expect(summarizeDrift(null)).toBe("暂无漂移数据");
     const d: DriftReport = {
       drift_score: 0.2,
-      position_delta: 0.1,
-      set_delta: 0.05,
-      structure_delta: 0,
-      score_delta: 0,
-      overlap_delta: 0,
+      position_dist_drift: 0.1,
+      number_set_drift: 0.05,
     };
-    expect(summarizeDrift(d)).toContain("0.200");
+    expect(summarizeDrift(d)).toContain("综合分");
   });
 });

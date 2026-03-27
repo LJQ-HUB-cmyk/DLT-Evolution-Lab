@@ -20,6 +20,7 @@ import {
   runPublish,
   syncOfficialData,
 } from "./lib/api";
+import { ApiError } from "./lib/errors";
 import type {
   AnalysisResponse,
   DrawIssue,
@@ -41,6 +42,8 @@ type SyncDialogState = {
   title: string;
   lines: string[];
 };
+
+const MIN_MODEL_HISTORY = 100;
 
 const defaultStatus = (): IssueStatus => ({
   issueCount: 0,
@@ -84,23 +87,38 @@ export default function App() {
     () => models.find((m) => m.status === "champion") ?? models[0] ?? null,
     [models],
   );
+  const championCredit = useMemo(() => {
+    if (!champion) {
+      return null;
+    }
+    if (typeof champion.credit_score === "number") {
+      return champion.credit_score;
+    }
+    if (typeof champion.credit === "number") {
+      return champion.credit <= 1.5 ? champion.credit * 70 : champion.credit;
+    }
+    return null;
+  }, [champion]);
 
   const scopedRuns = useMemo(() => runs.filter((r) => r.target_issue === targetIssue), [runs, targetIssue]);
   const latest = scopedRuns.length ? scopedRuns[scopedRuns.length - 1] : runs.length ? runs[runs.length - 1] : null;
   const plan1 = latest?.plan1 ?? [];
   const plan2 = latest?.plan2 ?? [];
+  const plan3 = latest?.plan3 ?? [];
 
   const refreshCore = useCallback(async () => {
     setAnalysisLoading(true);
     setStatusError(null);
     try {
-      const [issueData, runData, issueStatus, an, reg] = await Promise.all([
+      const [issueData, runData, issueStatus, reg] = await Promise.all([
         fetchIssues(),
         fetchRuns(80),
         fetchIssueStatus(),
-        fetchAnalysis(targetIssue),
         fetchModels(),
       ]);
+      const enoughHistory =
+        issueData.length >= MIN_MODEL_HISTORY || Number(issueStatus.issueCount ?? 0) >= MIN_MODEL_HISTORY;
+      const an = enoughHistory ? await fetchAnalysis(targetIssue) : null;
       setIssues(issueData);
       setRuns(runData);
       setStatus(issueStatus);
@@ -132,10 +150,21 @@ export default function App() {
     setLoading(true);
     setApiError(null);
     try {
+      if ((status.issueCount ?? 0) < MIN_MODEL_HISTORY || issues.length < MIN_MODEL_HISTORY) {
+        const summary = await syncOfficialData();
+        setSyncSummary(summary);
+        await refreshCore();
+      }
       await runPredict(targetIssue);
       await refreshAfterMutation();
     } catch (e) {
-      setApiError(e instanceof Error ? e.message : "实验失败");
+      // eslint-disable-next-line no-console
+      console.error("experiment_failed", e);
+      if (e instanceof ApiError && e.code === "INSUFFICIENT_HISTORY") {
+        setApiError("历史样本不足，无法建模。");
+      } else {
+        setApiError("局部刷新失败，请重试。");
+      }
     } finally {
       setLoading(false);
     }
@@ -145,10 +174,25 @@ export default function App() {
     setPublishing(true);
     setApiError(null);
     try {
-      await runPublish(targetIssue);
+      if ((status.issueCount ?? 0) < MIN_MODEL_HISTORY || issues.length < MIN_MODEL_HISTORY) {
+        const summary = await syncOfficialData();
+        setSyncSummary(summary);
+        await refreshCore();
+      }
+      const pub = await runPublish(targetIssue);
       await refreshAfterMutation();
+      const off = pub.officialPrediction;
+      openSyncDialog("发布结果", [
+        pub.idempotent ? "该期已发布，返回历史正式预测。" : "正式预测发布成功，已写入后端存储。",
+        `期号: ${off?.target_issue ?? targetIssue}`,
+        `run_id: ${off?.run_id ?? "-"}`,
+        `发布时间: ${off?.published_at ?? "-"}`,
+        "保存位置: d:/cursor_git/dlt-evolution-lab/storage/predictions.json -> official[]",
+      ]);
     } catch (e) {
-      setApiError(e instanceof Error ? e.message : "发布失败");
+      // eslint-disable-next-line no-console
+      console.error("publish_failed", e);
+      setApiError("局部刷新失败，请重试。");
     } finally {
       setPublishing(false);
     }
@@ -192,9 +236,10 @@ export default function App() {
         openSyncDialog("同步完成，但有提示", lines);
       }
     } catch (e) {
-      const msg = e instanceof Error ? e.message : "同步失败";
-      setApiError(msg);
-      openSyncDialog("同步失败", [msg]);
+      // eslint-disable-next-line no-console
+      console.error("sync_failed", e);
+      setApiError("同步失败，请检查后端状态。");
+      openSyncDialog("同步失败", ["同步失败，请检查后端状态。"]);
     } finally {
       setSyncing(false);
     }
@@ -212,7 +257,7 @@ export default function App() {
   const stickyMeta = (
     <div className="sticky-meta" data-testid="sticky-meta">
       <div className="sticky-chip mono">{analysis?.modelVersion ?? champion?.version ?? "—"}</div>
-      <div className="sticky-chip">{champion ? `信用分 ${champion.credit.toFixed(2)}` : "信用分 —"}</div>
+      <div className="sticky-chip">{championCredit != null ? `信用分 ${championCredit.toFixed(1)}` : "信用分 —"}</div>
     </div>
   );
 
@@ -277,6 +322,7 @@ export default function App() {
           <div className="right-mid">
             <PlanTicketPanel title="方案 1（结构化）" tickets={plan1} />
             <PlanTicketPanel title="方案 2（轻结构）" tickets={plan2} />
+            <PlanTicketPanel title="方案 3（统计结构 + 玄学轻优化）" tickets={plan3} />
             <ContributionPanel analysis={analysis} />
           </div>
           <div className="right-lower">

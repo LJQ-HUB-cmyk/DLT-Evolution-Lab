@@ -3,7 +3,7 @@ import type { Page } from "@playwright/test";
 export async function installApiMock(page: Page) {
   const runs: Record<string, unknown>[] = [];
 
-  await page.route("http://127.0.0.1:8000/api/**", async (route) => {
+  await page.route("http://127.0.0.1:8091/api/**", async (route) => {
     const url = route.request().url();
     const method = route.request().method();
 

@@ -145,3 +145,17 @@ def test_compute_drift_report_schema():
     )
     DriftReport.model_validate(r.model_dump())
     assert r.drift_level in ("NORMAL", "WARN", "CRITICAL")
+
+
+def test_export_drift_threshold_calibration_artifact(tmp_path, monkeypatch):
+    from app.engine.backtest import export_drift_threshold_calibration
+
+    monkeypatch.setattr("app.engine.backtest.artifacts_backtests_dir", lambda: tmp_path)
+    out = export_drift_threshold_calibration(
+        drift_scores=[0.05, 0.4, 0.8],
+        postmortem_scores=[60.0, 55.0, 40.0],
+        prize_hits=[1.0, 0.5, 0.0],
+        date_tag="unit",
+    )
+    assert out["sample_size"] == 3
+    assert (tmp_path / "drift_threshold_calibration_unit.json").exists()

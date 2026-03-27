@@ -1,0 +1,55 @@
+{
+  "report_id": "bt_mv1_c2378a8242f5",
+  "model_version": "mv1",
+  "target_window": "23056..23068",
+  "weighted_return": 0.5973043238508657,
+  "calibration_error": 0.9468531453461593,
+  "stability_score": 0.643083331585181,
+  "created_at": "2026-03-27T05:49:25.856958+00:00",
+  "folds": [
+    {
+      "fold_index": 0,
+      "eval_start_issue": "23056",
+      "mean_log_prob_true": -3.7688878355565456,
+      "mean_calibration_gap": 0.9572688398500357
+    },
+    {
+      "fold_index": 1,
+      "eval_start_issue": "23059",
+      "mean_log_prob_true": -2.9110616341034463,
+      "mean_calibration_gap": 0.9416375967959434
+    },
+    {
+      "fold_index": 2,
+      "eval_start_issue": "23062",
+      "mean_log_prob_true": -2.9842586159192166,
+      "mean_calibration_gap": 0.9433354903988248
+    },
+    {
+      "fold_index": 3,
+      "eval_start_issue": "23065",
+      "mean_log_prob_true": -2.917952215230457,
+      "mean_calibration_gap": 0.9336225434052425
+    },
+    {
+      "fold_index": 4,
+      "eval_start_issue": "23068",
+      "mean_log_prob_true": -3.525666745155707,
+      "mean_calibration_gap": 0.95840125628075
+    }
+  ],
+  "drift_mean": 0.40126102847071976,
+  "fold_min_score": -3.7688878355565456,
+  "reproducibility_passed": false,
+  "predict_p95_seconds": 0.5115253999829292,
+  "objective_components": {
+    "weighted_return": 0.597304,
+    "calibration_error": 0.946853,
+    "stability_score": 0.643083,
+    "diversity_score": 0.554593,
+    "drift_penalty": 0.401261,
+    "illegal_rate": 0.0,
+    "reproducibility_ok": false,
+    "predict_p95_seconds": 0.511525
+  }
+}

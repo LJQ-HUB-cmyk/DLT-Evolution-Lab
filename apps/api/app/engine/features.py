@@ -24,6 +24,33 @@ FEATURE_NAMES_NUMERIC = (
 TAIL_DIM = 10
 ZONE_DIM = 3
 
+# M7 特征分组（消融用）：组名 -> raw_feature_dict 中需置零的键
+FEATURE_ABLATION_GROUPS: dict[str, tuple[str, ...]] = {
+    "freq": ("freq_10", "freq_30", "freq_50", "freq_100"),
+    "miss": ("miss_current",),
+    "ewma": ("ewma_hotness",),
+    "adjacent_repeat": ("adjacent_last", "repeat_last"),
+    "tail": (),  # handled via zeroing tail_bucket after raw
+    "zone": (),
+    "sum_span": ("sum_contrib_proxy", "span_contrib_proxy"),
+    "interference": ("last_issue_interference",),
+    "hot_cold": ("hot_cold_tag",),
+}
+
+
+def _apply_feature_ablation_raw(d: dict[str, Any], ablate_groups: set[str]) -> dict[str, Any]:
+    out = dict(d)
+    for g in ablate_groups:
+        keys = FEATURE_ABLATION_GROUPS.get(g, ())
+        for k in keys:
+            if k in out:
+                out[k] = 0.0
+        if g == "tail":
+            out["tail_bucket"] = [0.0] * TAIL_DIM
+        if g == "zone":
+            out["zone_bucket"] = [0.0] * ZONE_DIM
+    return out
+
 
 def _sorted_issues_chrono(issues: list[dict[str, Any]]) -> list[dict[str, Any]]:
     def _key(item: dict[str, Any]) -> tuple[int, str]:
@@ -238,6 +265,7 @@ def build_features_for_draws(
     draws: list[dict[str, Any]],
     model_version: str,
     persist: bool = True,
+    ablate_groups: list[str] | None = None,
 ) -> tuple[dict[str, dict[int, dict[str, Any]]], dict[str, Any], str]:
     """
     Returns:
@@ -264,14 +292,19 @@ def build_features_for_draws(
     raw_back: dict[int, dict[str, Any]] = {}
     flat_list: list[np.ndarray] = []
 
+    ablate_set = set(ablate_groups or [])
     for n in range(1, 36):
         d = raw_feature_dict(n, "front", draws, freq30_front, last_front, last_back, sum_target, span_target, median_ball)
+        if ablate_set:
+            d = _apply_feature_ablation_raw(d, ablate_set)
         raw_front[n] = d
         flat_list.append(
             flatten_feature_vector({**d, "tail_bucket": d["tail_bucket"], "zone_bucket": d["zone_bucket"]})
         )
     for n in range(1, 13):
         d = raw_feature_dict(n, "back", draws, freq30_back, last_front, last_back, sum_target, span_target, median_ball)
+        if ablate_set:
+            d = _apply_feature_ablation_raw(d, ablate_set)
         raw_back[n] = d
         flat_list.append(
             flatten_feature_vector({**d, "tail_bucket": d["tail_bucket"], "zone_bucket": d["zone_bucket"]})

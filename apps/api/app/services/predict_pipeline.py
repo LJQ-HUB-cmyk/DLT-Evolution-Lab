@@ -14,7 +14,7 @@ from app.engine.features import build_features_for_draws, load_issues_dataframe
 from app.engine.position_model import score_positions, train_bundle
 from app.engine.reproducibility import build_rng, build_snapshot_hash, mix_seed_ints
 from app.engine.search import soft_structure_score
-from app.engine.ticketing import build_plan1, build_plan2
+from app.engine.ticketing import build_plan1, build_plan2, build_plan3
 from app.models.schemas import OfficialPrediction, PredictionRun
 
 
@@ -35,6 +35,11 @@ def _load_normalized_issues() -> list[dict[str, Any]]:
     with path.open("r", encoding="utf-8") as f:
         data = json.load(f)
     return list(data.get("items", []))
+
+
+def load_normalized_issues_list() -> list[dict[str, Any]]:
+    """Exported for backtest / optimization (M7)."""
+    return _load_normalized_issues()
 
 
 def _rule_version_id() -> str:
@@ -72,6 +77,7 @@ def default_model_config() -> dict[str, Any]:
                 "hot_cold_mix": 0.5,
             },
         },
+        "position_training": {},
     }
 
 
@@ -136,7 +142,7 @@ def run_prediction(
         raise PipelineError("INSUFFICIENT_HISTORY", "Validation slice too small")
 
     rng_train = build_rng(snapshot_hash, model_version, "train_fit")
-    bundle = train_bundle(train_draws, model_version, rng_train, min_hist=30)
+    bundle = train_bundle(train_draws, model_version, rng_train, min_hist=30, model_config=model_config)
     cal = fit_calibrators(bundle, train_draws, val_draws, model_version, min_hist=30)
     calibration_hash = persist_calibration(cal, model_version, snapshot_hash)
 
@@ -145,6 +151,7 @@ def run_prediction(
     )
     feature_summary["calibration_hash"] = calibration_hash
     feature_summary["feature_stats_hash"] = feature_stats_hash
+    feature_summary["training_diagnostics"] = getattr(bundle, "training_diagnostics", {})
 
     kf = int(model_config.get("search", {}).get("k_front", 12))
     kb = int(model_config.get("search", {}).get("k_back", 6))
@@ -155,9 +162,10 @@ def run_prediction(
 
     rng_exp = build_rng(snapshot_hash, model_version, seed)
     plan1, sm1 = build_plan1(calibrated, feats_by_zone, anchor_f, anchor_b, model_config)
-    plan2, sm2 = build_plan2(calibrated, feats_by_zone, model_config, rng_exp)
+    plan2, sm2 = build_plan2(calibrated, feats_by_zone, model_config, rng_exp, plan1_tickets=plan1)
+    plan3, sm3 = build_plan3(calibrated, feats_by_zone)
 
-    search_meta = {"plan1": sm1, "plan2": sm2}
+    search_meta = {"plan1": sm1, "plan2": sm2, "plan3": sm3}
 
     duration_ms = int((time.perf_counter() - t0) * 1000)
 
@@ -174,6 +182,7 @@ def run_prediction(
         "engine_version": ENGINE_VERSION,
         "plan1": [t.model_dump(mode="json") for t in plan1],
         "plan2": [t.model_dump(mode="json") for t in plan2],
+        "plan3": [t.model_dump(mode="json") for t in plan3],
         "feature_summary": feature_summary,
         "position_summary": position_summary,
         "search_meta": search_meta,
@@ -192,6 +201,7 @@ def run_prediction(
             engine_version=ENGINE_VERSION,
             plan1=plan1,
             plan2=plan2,
+            plan3=plan3,
             feature_summary=feature_summary,
             position_summary=position_summary,
             search_meta=search_meta,
@@ -209,6 +219,7 @@ def run_prediction(
         engine_version=ENGINE_VERSION,
         plan1=plan1,
         plan2=plan2,
+        plan3=plan3,
         feature_summary=feature_summary,
         position_summary=position_summary,
         search_meta=search_meta,
@@ -242,7 +253,7 @@ def build_analysis_payload(target_issue: str, model_version: str, model_config: 
     train_draws = history[:split]
     val_draws = history[split:]
     rng_train = build_rng(snapshot_hash, model_version, "train_fit")
-    bundle = train_bundle(train_draws, model_version, rng_train, min_hist=30)
+    bundle = train_bundle(train_draws, model_version, rng_train, min_hist=30, model_config=model_config)
     cal = fit_calibrators(bundle, train_draws, val_draws, model_version, min_hist=30)
 
     feats_by_zone, feature_summary, _ = build_features_for_draws(history, model_version, persist=False)

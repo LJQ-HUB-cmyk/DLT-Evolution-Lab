@@ -93,6 +93,55 @@ def _parse_history_text(raw_text: str) -> list[dict[str, Any]]:
     return rows
 
 
+def _collect_incremental_rows(raw_text: str, latest_issue: str | None) -> tuple[list[dict[str, Any]], int, bool]:
+    """
+    Read the text source from the end and collect only issues newer than ``latest_issue``.
+    Returns: (rows, scanned_lines, anchor_found)
+    """
+    if not raw_text:
+        return [], 0, False
+    lines = [line.strip() for line in raw_text.splitlines() if line.strip()]
+    if not lines:
+        return [], 0, False
+    if not latest_issue:
+        return _parse_history_text(raw_text), len(lines), False
+
+    rows_reversed: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    scanned = 0
+    anchor_found = False
+
+    for line in reversed(lines):
+        scanned += 1
+        parts = line.split()
+        if len(parts) < 9:
+            continue
+        issue = str(parts[0]).strip()
+        if issue == str(latest_issue).strip():
+            anchor_found = True
+            break
+        try:
+            front = sorted(int(x) for x in parts[2:7])
+            back = sorted(int(x) for x in parts[7:9])
+        except ValueError:
+            continue
+        ok, _ = _validate_draw_numbers(front, back)
+        if not ok or issue in seen:
+            continue
+        rows_reversed.append(
+            {
+                "issue": issue,
+                "front": front,
+                "back": back,
+                "draw_date": str(parts[1]).strip(),
+            }
+        )
+        seen.add(issue)
+
+    rows_reversed.reverse()
+    return rows_reversed, scanned, anchor_found
+
+
 def sync_sporttery_history(
     *,
     limit: int = 500,
@@ -112,13 +161,30 @@ def sync_sporttery_history(
     sync_time = _utc_now().isoformat()
     normalized_path = normalized_data_dir() / "issues.json"
     existing = _read_json(normalized_path, default={"items": []})
+    existing_items = list(existing.get("items", []))
     row_by_issue: dict[str, dict[str, Any]] = {
-        str(r["issue"]): dict(r) for r in existing.get("items", []) if r.get("issue") is not None
+        str(r["issue"]): dict(r) for r in existing_items if r.get("issue") is not None
     }
+    latest_existing_issue = None
+    latest_existing_row: dict[str, Any] | None = None
+    if existing_items:
+        latest_existing_row = max(
+            (dict(r) for r in existing_items if r.get("issue") is not None),
+            key=lambda r: _numeric_issue(str(r.get("issue"))),
+        )
+        latest_existing_issue = str(latest_existing_row.get("issue"))
+    can_use_incremental = bool(
+        latest_existing_issue
+        and len(existing_items) >= limit
+        and "ingest" not in {str(x) for x in ((latest_existing_row or {}).get("source") or [])}
+    )
 
     fetched: dict[str, dict[str, Any]] = {}
     parsed_rows = 0
     degraded = False
+    incremental_mode = False
+    anchor_found = False
+    scanned_lines = 0
 
     try:
         raw_text = _fetch_history_text()
@@ -127,11 +193,24 @@ def sync_sporttery_history(
         warnings.append(f"history text fetch failed: {exc}")
         raw_text = ""
 
-    rows = _parse_history_text(raw_text) if raw_text else []
+    if raw_text:
+        rows, scanned_lines, anchor_found = _collect_incremental_rows(raw_text, latest_existing_issue if can_use_incremental else None)
+        incremental_mode = bool(can_use_incremental and anchor_found)
+        if can_use_incremental and latest_existing_issue and not anchor_found:
+            warnings.append("incremental anchor not found, fallback to full rebuild")
+            rows = _parse_history_text(raw_text)
+            parsed_rows = len(rows)
+        else:
+            parsed_rows = len(rows)
+    else:
+        rows = []
     parsed_rows = len(rows)
     if not rows:
-        degraded = True
-        warnings.append("no draws parsed from history text source")
+        if can_use_incremental and latest_existing_issue and anchor_found:
+            warnings.append("no new draws found beyond local latest issue")
+        else:
+            degraded = True
+            warnings.append("no draws parsed from history text source")
 
     for row in rows:
         issue = str(row.get("issue") or "").strip()
@@ -145,8 +224,11 @@ def sync_sporttery_history(
         fetched[issue] = row
 
     if not fetched:
-        degraded = True
-        warnings.append("no draws fetched from history text source")
+        if can_use_incremental and latest_existing_issue and anchor_found:
+            warnings.append("no incremental draws fetched from history text source")
+        else:
+            degraded = True
+            warnings.append("no draws fetched from history text source")
 
     conflicts = 0
     for issue, data in fetched.items():
@@ -196,6 +278,9 @@ def sync_sporttery_history(
         "requestedLimit": limit,
         "fetchedUniqueIssues": len(fetched),
         "apiRowsParsed": parsed_rows,
+        "scannedLines": scanned_lines,
+        "incrementalApplied": incremental_mode,
+        "incrementalAnchorIssue": latest_existing_issue,
         "issueCount": len(trimmed),
         "conflictsSkipped": conflicts,
         "warnings": warnings,

@@ -94,7 +94,11 @@ def run_sync_job(
             },
         }
 
-    bucket = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    if trigger_source in ("manual", "retry"):
+        # Manual retries should always execute instead of being skipped by same-day idempotency.
+        bucket = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%f")
+    else:
+        bucket = datetime.now(timezone.utc).strftime("%Y-%m-%d")
     return transition_task(
         store,
         task_type="sync_job",

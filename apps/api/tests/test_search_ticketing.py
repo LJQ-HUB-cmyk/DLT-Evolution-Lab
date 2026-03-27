@@ -7,7 +7,7 @@ from app.engine.features import build_features_for_draws
 from app.engine.position_model import score_positions, train_bundle
 from app.engine.reproducibility import build_rng
 from app.engine.search import beam_search_tickets, hard_violation_front
-from app.engine.ticketing import build_plan1, build_plan2
+from app.engine.ticketing import build_plan1, build_plan2, build_plan3
 from app.services.predict_pipeline import default_model_config
 
 
@@ -51,6 +51,9 @@ def test_plan_counts():
     p1, m1 = build_plan1(calibrated, feats, None, None, cfg)
     rng2 = build_rng("p" * 64, "mv-p", 99)
     p2, m2 = build_plan2(calibrated, feats, cfg, rng2)
+    p3, m3 = build_plan3(calibrated, feats)
     assert len(p1) == 5
     assert len(p2) == 5
+    assert len(p3) == 5
     assert "beam_width" in m1
+    assert "structured_front_candidates" in m3

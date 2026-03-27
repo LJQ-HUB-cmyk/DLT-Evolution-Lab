@@ -1,4 +1,5 @@
 import { ApiError, mapHttpStatusToUserMessage, parseFastApiDetail } from "./errors";
+import { attachNormalizedDrift } from "./driftAdapter";
 import type {
   AnalysisResponse,
   DrawIssue,
@@ -9,9 +10,23 @@ import type {
 } from "../types";
 
 const envApiBase = (import.meta.env.VITE_API_BASE as string | undefined)?.trim();
-export const API_BASE = envApiBase && envApiBase.length > 0 ? envApiBase.replace(/\/+$/, "") : "http://127.0.0.1:8000/api";
+export const API_BASE = envApiBase && envApiBase.length > 0 ? envApiBase.replace(/\/+$/, "") : "http://127.0.0.1:8091/api";
 
 const DEFAULT_TIMEOUT_MS = 12_000;
+const PREDICT_TIMEOUT_MS = 420_000;
+const PUBLISH_TIMEOUT_MS = 90_000;
+
+export type PublishResponse = {
+  ok: boolean;
+  idempotent?: boolean;
+  officialPrediction?: {
+    target_issue?: string;
+    run_id?: string;
+    published_at?: string;
+    model_version?: string;
+    snapshot_hash?: string;
+  };
+};
 
 async function fetchWithTimeout(url: string, init: RequestInit, timeoutMs = DEFAULT_TIMEOUT_MS): Promise<Response> {
   const ctrl = new AbortController();
@@ -21,6 +36,15 @@ async function fetchWithTimeout(url: string, init: RequestInit, timeoutMs = DEFA
   } finally {
     clearTimeout(id);
   }
+}
+
+function isAbortLikeError(err: unknown): boolean {
+  if (!err || typeof err !== "object") {
+    return false;
+  }
+  const e = err as { name?: string; message?: string };
+  const msg = (e.message ?? "").toLowerCase();
+  return e.name === "AbortError" || msg.includes("aborted") || msg.includes("timeout");
 }
 
 async function fetchJsonRetryGet<T>(path: string): Promise<T | null> {
@@ -90,7 +114,7 @@ export async function fetchModels(): Promise<ModelsResponse | null> {
 }
 
 export async function syncOfficialData(): Promise<SyncSummary> {
-  const resp = await fetchWithTimeout(`${API_BASE}/sync`, { method: "POST" });
+  const resp = await fetchWithTimeout(`${API_BASE}/sync`, { method: "POST" }, 60_000);
   if (!resp.ok) {
     let detail: unknown;
     try {
@@ -109,7 +133,8 @@ export async function syncOfficialData(): Promise<SyncSummary> {
 
 export async function fetchRuns(limit = 50): Promise<PredictionRun[]> {
   const data = await fetchJsonRetryGet<{ items?: PredictionRun[] }>(`/runs?limit=${encodeURIComponent(String(limit))}`);
-  return data?.items ?? [];
+  const items = data?.items ?? [];
+  return items.map((r) => attachNormalizedDrift(r));
 }
 
 export async function fetchAnalysis(targetIssue: string): Promise<AnalysisResponse | null> {
@@ -121,7 +146,15 @@ export async function fetchAnalysis(targetIssue: string): Promise<AnalysisRespon
 export async function runPredict(targetIssue: string, seed?: number): Promise<void> {
   const q = seed != null ? `?seed=${encodeURIComponent(String(seed))}` : "";
   const url = `${API_BASE}/predict/${encodeURIComponent(targetIssue)}${q}`;
-  const resp = await fetchWithTimeout(url, { method: "POST" });
+  let resp: Response;
+  try {
+    resp = await fetchWithTimeout(url, { method: "POST" }, PREDICT_TIMEOUT_MS);
+  } catch (e) {
+    if (isAbortLikeError(e)) {
+      throw new ApiError("实验计算超时，请稍后重试。", "REQUEST_TIMEOUT", 408);
+    }
+    throw e;
+  }
   if (!resp.ok) {
     let detail: unknown;
     try {
@@ -137,10 +170,18 @@ export async function runPredict(targetIssue: string, seed?: number): Promise<vo
   }
 }
 
-export async function runPublish(targetIssue: string, seed?: number): Promise<void> {
+export async function runPublish(targetIssue: string, seed?: number): Promise<PublishResponse> {
   const q = seed != null ? `?seed=${encodeURIComponent(String(seed))}` : "";
   const url = `${API_BASE}/publish/${encodeURIComponent(targetIssue)}${q}`;
-  const resp = await fetchWithTimeout(url, { method: "POST" });
+  let resp: Response;
+  try {
+    resp = await fetchWithTimeout(url, { method: "POST" }, PUBLISH_TIMEOUT_MS);
+  } catch (e) {
+    if (isAbortLikeError(e)) {
+      throw new ApiError("发布请求超时，请稍后重试。", "REQUEST_TIMEOUT", 408);
+    }
+    throw e;
+  }
   if (!resp.ok) {
     let detail: unknown;
     try {
@@ -154,4 +195,5 @@ export async function runPublish(targetIssue: string, seed?: number): Promise<vo
     const parsed = parseFastApiDetail(inner);
     throw new ApiError(parsed.message || mapHttpStatusToUserMessage(resp.status), parsed.code, resp.status);
   }
+  return (await resp.json()) as PublishResponse;
 }

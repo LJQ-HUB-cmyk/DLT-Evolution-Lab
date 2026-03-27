@@ -165,6 +165,7 @@ def append_candidate_model(
     optimization_run_id: str,
     config_overrides: dict[str, Any],
     best_score: float,
+    backtest_report_ref: str | None = None,
 ) -> str:
     reg = normalize_registry(store.read("model_registry.json", default={"items": []}))
     cand_ver = f"{base_version}-cand-{optimization_run_id[-8:]}"
@@ -177,7 +178,11 @@ def append_candidate_model(
             "updated_at": _iso_now(),
             "notes": f"from_optimization {optimization_run_id}",
             "config_overrides": config_overrides,
-            "promotion_evidence": {"optimization_run_id": optimization_run_id, "best_score": best_score},
+            "promotion_evidence": {
+                "optimization_run_id": optimization_run_id,
+                "best_score": best_score,
+                **({"backtest_report_ref": backtest_report_ref} if backtest_report_ref else {}),
+            },
         }
     )
     reg["items"].append(item)
@@ -204,19 +209,41 @@ def evaluate_walk_forward_gate(
     reproducibility_total: int,
     predict_p95: float,
     degraded_test_data: bool,
+    reproducibility_passed: bool | None = None,
 ) -> dict[str, Any]:
     if degraded_test_data:
         return {
             "passed": False,
             "degraded_test_data": True,
+            "relative_improvement": 0.0,
+            "fold_ok": False,
+            "drift_ok": False,
+            "repro_ok": False,
+            "perf_ok": False,
             "reason": "insufficient_or_degraded_test_data",
         }
     rel_improve = (candidate_objective - champion_objective) / max(abs(champion_objective), 1e-6)
     fold_ok = candidate_fold_min >= champion_fold_min - 0.02
     drift_ok = drift_candidate_mean <= drift_champion_mean + 0.05
-    repro_ok = reproducibility_passes >= reproducibility_total
+    repro_ok = bool(reproducibility_passed) if reproducibility_passed is not None else (
+        reproducibility_passes >= reproducibility_total
+    )
     perf_ok = predict_p95 < 3.0
     passed = rel_improve >= 0.03 and fold_ok and drift_ok and repro_ok and perf_ok
+    reason = "ok"
+    if not passed:
+        if rel_improve < 0.03:
+            reason = "relative_improvement_below_3pct"
+        elif not fold_ok:
+            reason = "fold_min_not_met"
+        elif not drift_ok:
+            reason = "drift_budget_exceeded"
+        elif not repro_ok:
+            reason = "reproducibility_failed"
+        elif not perf_ok:
+            reason = "predict_p95_too_slow"
+        else:
+            reason = "gate_failed"
     return {
         "passed": passed,
         "degraded_test_data": False,
@@ -225,6 +252,7 @@ def evaluate_walk_forward_gate(
         "drift_ok": drift_ok,
         "repro_ok": repro_ok,
         "perf_ok": perf_ok,
+        "reason": reason,
     }
 
 
@@ -250,6 +278,13 @@ def try_promote_candidate(
     cand["updated_at"] = _iso_now()
     if not gr.get("passed") or gr.get("degraded_test_data"):
         _write_registry_items_preserve_extras(store, items)
+        store.append_log(
+            "scheduler_logs.json",
+            action="promote",
+            result="failed",
+            detail=f"candidate={candidate_version},reason={gr.get('reason', 'gate_failed')}",
+            model_version=candidate_version,
+        )
         return {"ok": False, "reason": gr.get("reason", "gate_failed"), "gate_result": gr}
     for it in items:
         if it.get("status") == "champion":

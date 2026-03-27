@@ -154,6 +154,11 @@ describe("api", () => {
     await expect(runPredict("next", 1)).resolves.toBeUndefined();
   });
 
+  it("runPredict maps abort-like errors to ApiError", async () => {
+    vi.mocked(fetch).mockRejectedValue(new Error("signal is aborted without reason"));
+    await expect(runPredict("next")).rejects.toBeInstanceOf(ApiError);
+  });
+
   it("runPublish throws on failure", async () => {
     vi.mocked(fetch).mockResolvedValue(new Response(JSON.stringify({ detail: "gone" }), { status: 404 }));
     await expect(runPublish("25100")).rejects.toBeInstanceOf(ApiError);
@@ -165,7 +170,11 @@ describe("api", () => {
   });
 
   it("runPublish succeeds on ok", async () => {
-    vi.mocked(fetch).mockResolvedValue(new Response(JSON.stringify({ ok: true }), { status: 200 }));
-    await expect(runPublish("25100")).resolves.toBeUndefined();
+    vi.mocked(fetch).mockResolvedValue(
+      new Response(JSON.stringify({ ok: true, officialPrediction: { run_id: "x" } }), { status: 200 }),
+    );
+    const pub = await runPublish("25100");
+    expect(pub.ok).toBe(true);
+    expect(pub.officialPrediction?.run_id).toBe("x");
   });
 });

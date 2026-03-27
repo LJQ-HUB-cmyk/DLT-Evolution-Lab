@@ -148,7 +148,7 @@ def build_hit_matrix(draw: dict[str, Any], runs: list[dict[str, Any]]) -> list[d
     for run in runs:
         rid = run.get("run_id")
         tickets: list[dict[str, Any]] = []
-        for plan_key in ("plan1", "plan2"):
+        for plan_key in ("plan1", "plan2", "plan3"):
             for idx, t in enumerate(run.get(plan_key) or []):
                 fh, bh = _ticket_hits(t, df, db)
                 level = map_prize_level(fh, bh)
@@ -244,6 +244,9 @@ def build_and_persist_postmortem(
             "hit_matrix": [],
             "prize_distribution": {},
             "postmortem_score": 0.0,
+            "prize_score": 0.0,
+            "structure_score": 0.0,
+            "stability_score": 0.0,
             "triggered_optimize": False,
             "created_at": utc_now_iso(),
         }
@@ -284,6 +287,9 @@ def build_and_persist_postmortem(
         "hit_matrix": hit_matrix,
         "prize_distribution": dist,
         "postmortem_score": agg,
+        "prize_score": best_prize,
+        "structure_score": best_struct,
+        "stability_score": stab,
         "triggered_optimize": False,
         "created_at": utc_now_iso(),
     }

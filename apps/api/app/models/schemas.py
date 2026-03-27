@@ -60,6 +60,7 @@ class PredictionRun(BaseModel):
     engine_version: str = ""
     plan1: list[Ticket] = Field(default_factory=list)
     plan2: list[Ticket] = Field(default_factory=list)
+    plan3: list[Ticket] = Field(default_factory=list)
     feature_summary: dict[str, Any] = Field(default_factory=dict)
     position_summary: dict[str, Any] = Field(default_factory=dict)
     search_meta: dict[str, Any] = Field(default_factory=dict)
@@ -79,6 +80,7 @@ class OfficialPrediction(BaseModel):
     engine_version: str = ""
     plan1: list[Ticket] = Field(default_factory=list)
     plan2: list[Ticket] = Field(default_factory=list)
+    plan3: list[Ticket] = Field(default_factory=list)
     feature_summary: dict[str, Any] = Field(default_factory=dict)
     position_summary: dict[str, Any] = Field(default_factory=dict)
     search_meta: dict[str, Any] = Field(default_factory=dict)
@@ -113,6 +115,12 @@ class BacktestReport(BaseModel):
     calibration_error: float
     stability_score: float
     created_at: datetime
+    folds: list[dict[str, Any]] = Field(default_factory=list)
+    drift_mean: float = 0.0
+    fold_min_score: float = 0.0
+    reproducibility_passed: bool = True
+    predict_p95_seconds: float = 0.0
+    objective_components: dict[str, Any] = Field(default_factory=dict)
 
 
 class PostmortemReport(BaseModel):
@@ -126,6 +134,12 @@ class PostmortemReport(BaseModel):
     run_refs: list[str] = Field(default_factory=list)
     postmortem_score: float | None = None
     triggered_optimize: bool | None = None
+    draw_result: dict[str, Any] | None = None
+    hit_matrix: list[dict[str, Any]] | None = None
+    prize_distribution: dict[str, int] | None = None
+    prize_score: float | None = None
+    structure_score: float | None = None
+    stability_score: float | None = None
 
 
 class AnchorTicketState(BaseModel):

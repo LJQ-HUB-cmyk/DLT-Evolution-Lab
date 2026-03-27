@@ -181,3 +181,46 @@ def test_sync_sporttery_history_replaces_ingest_placeholder(tmp_path: Path, monk
     assert row["front"] == [8, 11, 15, 22, 31]
     assert row["back"] == [4, 9]
     assert row["source"] == ["data17500_txt"]
+
+
+def test_sync_sporttery_history_uses_incremental_merge_when_local_cache_is_full(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    norm = tmp_path / "normalized"
+    norm.mkdir(parents=True)
+    st = tmp_path / "storage"
+    st.mkdir(parents=True)
+
+    monkeypatch.setattr("app.services.sporttery_history_service.normalized_data_dir", lambda: norm)
+    monkeypatch.setattr("app.services.sporttery_history_service.storage_dir", lambda: st)
+
+    existing_items = []
+    for n in range(25000, 25005):
+        existing_items.append(
+            {
+                "issue": str(n),
+                "front": [1, 2, 3, 4, 5],
+                "back": [6, 7],
+                "draw_date": "2026-01-01",
+                "source": ["data17500_txt"],
+            }
+        )
+    (norm / "issues.json").write_text(json.dumps({"items": existing_items}, ensure_ascii=False), encoding="utf-8")
+
+    def _fake_text() -> str:
+        lines = []
+        for n in range(25000, 25008):
+            lines.append(f"{n} 2026-01-01 01 02 03 04 05 06 07 - - -")
+        return "\n".join(lines)
+
+    monkeypatch.setattr("app.services.sporttery_history_service._fetch_history_text", _fake_text)
+
+    out = sync_sporttery_history(limit=5)
+    assert out["ok"] is True
+    assert out["incrementalApplied"] is True
+    assert out["fetchedUniqueIssues"] == 3
+    assert out["incrementalAnchorIssue"] == "25004"
+
+    payload = json.loads((norm / "issues.json").read_text(encoding="utf-8"))
+    issues = [str(x["issue"]) for x in payload["items"]]
+    assert issues == ["25007", "25006", "25005", "25004", "25003"]

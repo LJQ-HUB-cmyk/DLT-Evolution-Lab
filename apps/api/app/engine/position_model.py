@@ -1,12 +1,23 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 import numpy as np
 from sklearn.linear_model import LogisticRegression
 
 from app.engine.features import build_features_for_draws
+
+MAX_TRAIN_SNAPSHOTS = 80
+
+# 可通过环境变量或 model_config 覆盖（M7）
+_POSITION_TRAIN_DEFAULTS: dict[str, Any] = {
+    "lr_C": 1.0,
+    "lr_max_iter": 1000,
+    "neg_sample_front": 6,
+    "neg_sample_back": 4,
+    "max_train_snapshots": MAX_TRAIN_SNAPSHOTS,
+}
 
 
 def _flat_feature_names() -> list[str]:
@@ -32,6 +43,7 @@ class PositionModelBundle:
     fallback_weights: np.ndarray
     feature_dim: int
     use_fallback: bool
+    training_diagnostics: dict[str, Any] = field(default_factory=dict)
 
 
 def _sample_negatives(zone: str, positive: int, rng: np.random.Generator, k: int = 6) -> list[int]:
@@ -41,11 +53,27 @@ def _sample_negatives(zone: str, positive: int, rng: np.random.Generator, k: int
     return pool[:k]
 
 
+def _training_options_from_model_config(model_config: dict[str, Any] | None) -> dict[str, Any]:
+    base = dict(_POSITION_TRAIN_DEFAULTS)
+    if not model_config:
+        return base
+    pt = model_config.get("position_training")
+    if isinstance(pt, dict):
+        for k in ("lr_C", "lr_max_iter", "neg_sample_front", "neg_sample_back", "max_train_snapshots"):
+            if k in pt:
+                base[k] = pt[k]
+    return base
+
+
 def _build_training_matrices(
     draws: list[dict[str, Any]],
     model_version: str,
     min_hist: int,
     rng: np.random.Generator,
+    *,
+    max_snapshots: int,
+    neg_front: int,
+    neg_back: int,
 ) -> tuple[list[list[np.ndarray]], list[list[int]], list[list[np.ndarray]], list[list[int]], int]:
     """Returns X_front, y_front, X_back, y_back per position lists, feature_dim."""
     Xf = [[] for _ in range(5)]
@@ -54,7 +82,12 @@ def _build_training_matrices(
     yb = [[] for _ in range(2)]
     dim = 0
 
-    for t in range(min_hist, len(draws)):
+    total = max(0, len(draws) - min_hist)
+    step = 1
+    if total > max_snapshots:
+        step = int(np.ceil(total / max_snapshots))
+
+    for t in range(min_hist, len(draws), step):
         hist = draws[:t]
         nxt = draws[t]
         feats_by_zone, _, _ = build_features_for_draws(hist, model_version, persist=False)
@@ -66,7 +99,7 @@ def _build_training_matrices(
             dim = xs_pos.size
             Xf[pos].append(xs_pos)
             yf[pos].append(1)
-            for neg in _sample_negatives("front", pos_ball, rng):
+            for neg in _sample_negatives("front", pos_ball, rng, k=neg_front):
                 Xf[pos].append(np.array(feats_by_zone["front"][neg]["feature_vector"], dtype=np.float64))
                 yf[pos].append(0)
         for pos in range(2):
@@ -74,7 +107,7 @@ def _build_training_matrices(
             xs_pos = np.array(feats_by_zone["back"][pos_ball]["feature_vector"], dtype=np.float64)
             Xb[pos].append(xs_pos)
             yb[pos].append(1)
-            for neg in _sample_negatives("back", pos_ball, rng, k=4):
+            for neg in _sample_negatives("back", pos_ball, rng, k=neg_back):
                 Xb[pos].append(np.array(feats_by_zone["back"][neg]["feature_vector"], dtype=np.float64))
                 yb[pos].append(0)
 
@@ -86,57 +119,140 @@ def train_bundle(
     model_version: str,
     rng: np.random.Generator,
     min_hist: int = 30,
+    model_config: dict[str, Any] | None = None,
 ) -> PositionModelBundle:
-    Xf, yf, Xb, yb, dim = _build_training_matrices(draws, model_version, min_hist, rng)
+    opts = _training_options_from_model_config(model_config)
+    max_snapshots = int(opts.get("max_train_snapshots", MAX_TRAIN_SNAPSHOTS))
+    neg_front = int(opts.get("neg_sample_front", 6))
+    neg_back = int(opts.get("neg_sample_back", 4))
+    lr_c = float(opts.get("lr_C", 1.0))
+    lr_max_iter = int(opts.get("lr_max_iter", 1000))
+
+    Xf, yf, Xb, yb, dim = _build_training_matrices(
+        draws,
+        model_version,
+        min_hist,
+        rng,
+        max_snapshots=max_snapshots,
+        neg_front=neg_front,
+        neg_back=neg_back,
+    )
     front_models: list[LogisticRegression | None] = []
     back_models: list[LogisticRegression | None] = []
     use_fallback = False
+    per_position: list[dict[str, Any]] = []
 
     for pos in range(5):
         if len(Xf[pos]) < 20:
             use_fallback = True
+            per_position.append(
+                {"zone": "front", "position": pos, "n_samples": len(Xf[pos]), "fallback": True, "pos_rate": None}
+            )
             break
         X = np.vstack(Xf[pos])
         y = np.array(yf[pos])
-        m = LogisticRegression(solver="lbfgs", C=1.0, max_iter=1000)
+        pos_rate = float(y.mean()) if len(y) else 0.0
+        per_position.append(
+            {
+                "zone": "front",
+                "position": pos,
+                "n_samples": int(len(y)),
+                "pos_rate": round(pos_rate, 6),
+                "fallback": False,
+            }
+        )
+        m = LogisticRegression(solver="lbfgs", C=lr_c, max_iter=lr_max_iter)
         m.fit(X, y)
         front_models.append(m)
     if use_fallback:
         w = np.ones(dim) / max(1, dim)
+        diag = {
+            "use_fallback": True,
+            "feature_dim": dim,
+            "lr_C": lr_c,
+            "lr_max_iter": lr_max_iter,
+            "neg_sample_front": neg_front,
+            "neg_sample_back": neg_back,
+            "max_train_snapshots": max_snapshots,
+            "positions": per_position,
+        }
         return PositionModelBundle(
             front_models=[None] * 5,
             back_models=[None] * 2,
             fallback_weights=w,
             feature_dim=dim,
             use_fallback=True,
+            training_diagnostics=diag,
         )
 
     for pos in range(2):
         if len(Xb[pos]) < 12:
             use_fallback = True
+            per_position.append(
+                {
+                    "zone": "back",
+                    "position": pos,
+                    "n_samples": len(Xb[pos]),
+                    "fallback": True,
+                    "pos_rate": None,
+                }
+            )
             break
         X = np.vstack(Xb[pos])
         y = np.array(yb[pos])
-        m = LogisticRegression(solver="lbfgs", C=1.0, max_iter=1000)
+        pos_rate = float(y.mean()) if len(y) else 0.0
+        per_position.append(
+            {
+                "zone": "back",
+                "position": pos,
+                "n_samples": int(len(y)),
+                "pos_rate": round(pos_rate, 6),
+                "fallback": False,
+            }
+        )
+        m = LogisticRegression(solver="lbfgs", C=lr_c, max_iter=lr_max_iter)
         m.fit(X, y)
         back_models.append(m)
 
     if len(back_models) != 2:
         w = np.ones(dim) / max(1, dim)
+        diag = {
+            "use_fallback": True,
+            "feature_dim": dim,
+            "lr_C": lr_c,
+            "lr_max_iter": lr_max_iter,
+            "neg_sample_front": neg_front,
+            "neg_sample_back": neg_back,
+            "max_train_snapshots": max_snapshots,
+            "positions": per_position,
+            "reason": "back_head_insufficient",
+        }
         return PositionModelBundle(
             front_models=[None] * 5,
             back_models=[None] * 2,
             fallback_weights=w,
             feature_dim=dim,
             use_fallback=True,
+            training_diagnostics=diag,
         )
 
+    diag = {
+        "use_fallback": False,
+        "feature_dim": dim,
+        "lr_C": lr_c,
+        "lr_max_iter": lr_max_iter,
+        "neg_sample_front": neg_front,
+        "neg_sample_back": neg_back,
+        "max_train_snapshots": max_snapshots,
+        "positions": per_position,
+    }
     return PositionModelBundle(
         front_models=front_models,
         back_models=back_models,
         fallback_weights=np.ones(dim) / max(1, dim),
         feature_dim=dim,
         use_fallback=False,
+        training_diagnostics=diag,
     )
 
 

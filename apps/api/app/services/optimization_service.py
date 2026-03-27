@@ -1,9 +1,17 @@
 from __future__ import annotations
 
+import os
 import uuid
 from datetime import datetime, timezone
 from typing import Any, Literal
 
+from app.engine.backtest import (
+    BacktestInsufficientHistoryError,
+    persist_backtest_report,
+    report_to_objective_probe_dict,
+    run_walk_forward_backtest,
+)
+from app.engine.model_credit import merge_config_overrides
 from app.engine.optimize import (
     canonical_search_space_hash,
     params_to_model_config_patch,
@@ -12,12 +20,51 @@ from app.engine.optimize import (
 )
 from app.services.json_store import JsonStore
 from app.services.model_registry_service import append_candidate_model, get_champion_item, normalize_registry
+from app.services.predict_pipeline import default_model_config, load_normalized_issues_list
 
 OptimizeTriggerSource = Literal["manual", "auto_drift", "auto_credit"]
 
 
 def _iso_now() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+def _resolve_objective_probe(store: JsonStore, objective_probe: Any) -> Any:
+    if objective_probe is not None:
+        return objective_probe
+    if os.environ.get("OPTUNA_FAST", "").lower() in ("1", "true", "yes"):
+        return None
+    issues = load_normalized_issues_list()
+    reg = normalize_registry(store.read("model_registry.json", default={"items": []}))
+    champ = get_champion_item(reg.get("items", []))
+    ver = str(champ["version"]) if champ else "m7-default"
+
+    def _probe(params: dict[str, Any]) -> dict[str, Any]:
+        patch = params_to_model_config_patch(params)
+        cfg = merge_config_overrides(default_model_config(), patch)
+        wc = {"min_history_issues": 72, "n_folds": 5, "fold_step": 3, "eval_span": 1}
+        try:
+            rep = run_walk_forward_backtest(
+                issues,
+                model_config=cfg,
+                base_model_version=ver,
+                window_config=wc,
+            )
+            return report_to_objective_probe_dict(rep)
+        except BacktestInsufficientHistoryError:
+            return {
+                "illegal_rate": 0.0,
+                "reproducible_ok": False,
+                "p95_seconds": 0.0,
+                "backtest_score": 0.0,
+                "stability_score": 0.0,
+                "calibration_score": 0.0,
+                "diversity_score": 0.0,
+            }
+
+    if len(issues) < 80:
+        return None
+    return _probe
 
 
 def should_trigger_optimize(
@@ -153,7 +200,11 @@ def enqueue_optimize(
         model_version=base_model_version,
     )
     if execute:
-        return execute_optimization_run(store, run_id, objective_probe=objective_probe)
+        return execute_optimization_run(
+            store,
+            run_id,
+            objective_probe=_resolve_objective_probe(store, objective_probe),
+        )
     return {
         "optimization_run_id": run_id,
         "status": "queued",
@@ -176,12 +227,13 @@ def execute_optimization_run(
     target["started_at"] = _iso_now()
     store.write("optimization_runs.json", payload)
     try:
+        probe = _resolve_objective_probe(store, objective_probe)
         ssh = canonical_search_space_hash()
         best_params, best_score, meta = run_optuna_study(
             run_id=run_id,
             n_trials=int(target.get("budget_trials", 80)),
             time_limit_minutes=float(target.get("time_limit_minutes", 45)),
-            objective_probe=objective_probe,
+            objective_probe=probe,
             seed=42,
         )
         target["search_space_hash"] = ssh
@@ -189,18 +241,44 @@ def execute_optimization_run(
         target["trial_params_hash"] = search_space_hash(best_params)
         target["best_score"] = best_score
         target["study_summary"] = meta.get("study_summary", {})
+        target["best_objective_detail"] = meta.get("best_detail", {})
         target["status"] = "completed"
         target["finished_at"] = _iso_now()
         target["failed_reason"] = None
         patch = params_to_model_config_patch(best_params)
+        bt_path: str | None = None
+        issues = load_normalized_issues_list()
+        reg = normalize_registry(store.read("model_registry.json", default={"items": []}))
+        champ = get_champion_item(reg.get("items", []))
+        ver = str(champ["version"]) if champ else str(target.get("base_model_version", "unknown"))
+        cfg = merge_config_overrides(default_model_config(), patch)
+        wc = {"min_history_issues": 72, "n_folds": 5, "fold_step": 3, "eval_span": 1}
+        try:
+            if len(issues) >= 80:
+                rep = run_walk_forward_backtest(
+                    issues,
+                    model_config=cfg,
+                    base_model_version=ver,
+                    window_config=wc,
+                )
+                bt_path = persist_backtest_report(rep)
+                target["best_backtest_report_ref"] = rep["report_id"]
+                target["best_score_source"] = "walk_forward_backtest"
+        except BacktestInsufficientHistoryError:
+            target["best_score_source"] = "optuna_study_only"
         cand_ver = append_candidate_model(
             store,
             base_version=str(target.get("base_model_version", "unknown")),
             optimization_run_id=run_id,
             config_overrides=patch,
             best_score=best_score,
+            backtest_report_ref=bt_path,
         )
-        target["gate_result"] = {"candidate_version": cand_ver, "registered": True}
+        target["gate_result"] = {
+            "candidate_version": cand_ver,
+            "registered": True,
+            "backtest_report_ref": bt_path,
+        }
         store.write("optimization_runs.json", payload)
         store.append_log(
             "scheduler_logs.json",

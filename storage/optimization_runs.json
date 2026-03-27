@@ -1,4 +1,40 @@
 {
-  "items": []
+  "items": [
+    {
+      "run_id": "opt_85e5b46cd283",
+      "trigger_source": "auto_drift",
+      "base_model_version": "m1-baseline",
+      "search_space_hash": "db03bea34f52e0be",
+      "study_summary": {
+        "n_trials": 80,
+        "best_value": 0.791821077261385,
+        "study_name": "opt_85e5b46cd283"
+      },
+      "best_params": {
+        "freq_window_main": 80,
+        "ewma_alpha": 0.1864234363120667,
+        "hot_threshold": 1.1725271020020118,
+        "cold_threshold": -1.225515026717519,
+        "beam_width": 101,
+        "diversity_lambda": 0.492389128724105,
+        "structure_penalty": 0.4900725885527184,
+        "platt_C": 3.4735423174579805,
+        "plan2_seed_mix": 0.5982532468521539,
+        "plan2_soft_constraint_scale": 0.7214433338790409
+      },
+      "best_score": 0.791821077261385,
+      "gate_result": {
+        "candidate_version": "m1-baseline-cand-b46cd283",
+        "registered": true
+      },
+      "status": "completed",
+      "started_at": "2026-03-26T13:01:40.351938+00:00",
+      "finished_at": "2026-03-26T13:01:41.214897+00:00",
+      "queued_at": "2026-03-26T13:01:40.347943+00:00",
+      "failed_reason": null,
+      "budget_trials": 80,
+      "time_limit_minutes": 45,
+      "trial_params_hash": "fc91347391ee0f73"
+    }
+  ]
 }
-
