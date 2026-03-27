@@ -21,8 +21,8 @@
 - 触发候选模型优化，并评估是否能晋升
 - 前端提供桌面双栏 + 移动端折叠的可视化看板
 ## 项目截图
+<img width="1920" height="945" alt="image" src="https://github.com/user-attachments/assets/c769eb7c-d094-4474-81f4-b52549281c34" />
 
-<img width="1920" height="945" alt="image" src="https://github.com/user-attachments/assets/a71a5c03-3380-4be3-b1fe-bea9c8bc14c8" />
 
 
 
